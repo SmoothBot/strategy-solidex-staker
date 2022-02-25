@@ -17,7 +17,7 @@ def whale(accounts):
     # big binance7 wallet
     # acc = accounts.at('0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8', force=True)
     # big binance8 wallet
-    acc = accounts.at("0xBa37B002AbaFDd8E89a1995dA52740bbC013D992", force=True)
+    acc = accounts.at("0xC009BC33201A85800b3593A40a178521a8e60a02", force=True)
 
     # lots of weth account
     # wethAcc = accounts.at("0x767Ecb395def19Ab8d1b2FCc89B3DDfBeD28fD6b", force=True)
@@ -27,30 +27,17 @@ def whale(accounts):
     # assert weth.balanceOf(acc) > 0
     yield acc
 
-
 @pytest.fixture
-def yfi(interface):
-    yield interface.ERC20("0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e")
+def masterchef(interface):
+    yield interface.ERC20("0x26E1A0d851CF28E697870e1b7F053B605C8b060F")
 
+# @pytest.fixture
+# def solid(interface):
+#     yield interface.ERC20("0x888EF71766ca594DED1F0FA3AE64eD2941740A20")
 
-@pytest.fixture
-def bdp_masterchef(interface):
-    yield interface.ERC20("0x0De845955E2bF089012F682fE9bC81dD5f11B372")
-
-
-@pytest.fixture
-def bdp(interface):
-    yield interface.ERC20("0xf3dcbc6D72a4E1892f7917b7C43b74131Df8480e")
-
-
-@pytest.fixture
-def router():
-    yield Contract("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
-
-
-@pytest.fixture
-def pid():
-    yield 8
+# @pytest.fixture
+# def sex(interface):
+#     yield interface.ERC20("0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7")
 
 
 @pytest.fixture
@@ -74,8 +61,8 @@ def keeper(accounts):
 
 
 @pytest.fixture
-def token(yfi):
-    yield yfi
+def token(interface):
+    yield interface.ERC20('0xbcab7d083Cf6a01e0DdA9ed7F8a02b47d125e682') # sAMM-USDC/MIM
 
 
 @pytest.fixture
@@ -90,15 +77,15 @@ def amount(accounts, token):
 
 @pytest.fixture
 def weth():
-    token_address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    token_address = "0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83"
     yield Contract(token_address)
 
 
 @pytest.fixture
-def weth_amout(gov, weth):
-    weth_amout = 10 ** weth.decimals()
-    gov.transfer(weth, weth_amout)
-    yield weth_amout
+def weth_amount(gov, weth):
+    weth_amount = 10 ** weth.decimals()
+    gov.transfer(weth, weth_amount)
+    yield weth_amount
 
 
 @pytest.fixture
@@ -141,13 +128,9 @@ def strategy(
     token,
     weth,
     Strategy,
-    gov,
-    bdp_masterchef,
-    bdp,
-    router,
-    pid,
+    gov
 ):
-    strategy = strategist.deploy(Strategy, vault, bdp_masterchef, bdp, router, pid)
+    strategy = strategist.deploy(Strategy, vault, token.address)
     strategy.setKeeper(keeper)
 
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})

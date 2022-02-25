@@ -6,26 +6,16 @@ pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
 interface ChefLike {
-    function deposit(uint256 _pid, uint256 _amount) external;
+    function deposit(address _pool, uint256 _amount) external;
 
-    function withdraw(uint256 _pid, uint256 _amount) external;
+    function getReward(address[] calldata pools) external;
 
-    function emergencyWithdraw(uint256 _pid) external;
+    function withdraw(address _pool, uint256 _amount) external;
 
-    function poolInfo(uint256 _pid)
+    function userBalances(address _user, address _pool)
         external
         view
-        returns (
-            address,
-            uint256,
-            uint256,
-            uint256
-        );
-
-    function userInfo(uint256 _pid, address user)
-        external
-        view
-        returns (uint256, uint256);
+        returns (uint256 _balance);
 }
 
 // These are the core Yearn libraries
@@ -36,7 +26,7 @@ import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
-import "./interfaces/UniswapInterfaces/IUniswapV2Router02.sol";
+import "./Interfaces/ISolidlyRouter01.sol";
 
 // Import interfaces for many popular DeFi projects, or add your own!
 //import "../interfaces/<protocol>/<Interface>.sol";
@@ -46,166 +36,136 @@ contract Strategy is BaseStrategy {
     using Address for address;
     using SafeMath for uint256;
 
-    address public masterchef;
-    address public reward;
+    address public constant masterchef = address(0x26E1A0d851CF28E697870e1b7F053B605C8b060F);
+    IERC20 public constant solidex = IERC20(0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7);
+    IERC20 public constant solid = IERC20(0x888EF71766ca594DED1F0FA3AE64eD2941740A20);
 
-    address private constant uniswapRouter =
-        address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
-    address private constant sushiswapRouter =
-        address(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
-    address private constant weth =
-        address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    address private constant solidyRouter = address(0xa38cd27185a464914D3046f0AB9d43356B34829D);
+    // address private constant sushiswapRouter = address(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
+    address private constant weth = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
-    address public router;
-
-    uint256 public pid;
-
-    address[] public path;
-
-    event Cloned(address indexed clone);
+    ISolidlyRouter01 public router = ISolidlyRouter01(solidyRouter);
+    IBaseV1Pair pair;
+    IERC20 token0;
+    IERC20 token1;
 
     constructor(
         address _vault,
-        address _masterchef,
-        address _reward,
-        address _router,
         uint256 _pid
     ) public BaseStrategy(_vault) {
-        _initializeStrat(_masterchef, _reward, _router, _pid);
+        _initializeStrat();
     }
 
-    function initialize(
-        address _vault,
-        address _strategist,
-        address _rewards,
-        address _keeper,
-        address _masterchef,
-        address _reward,
-        address _router,
-        uint256 _pid
-    ) external {
-        //note: initialise can only be called once. in _initialize in BaseStrategy we have: require(address(want) == address(0), "Strategy already initialized");
-        _initialize(_vault, _strategist, _rewards, _keeper);
-        _initializeStrat(_masterchef, _reward, _router, _pid);
-    }
+    // function initialize(
+    //     address _vault,
+    //     address _strategist,
+    //     address _rewards,
+    //     address _keeper
+    // ) external {
+    //     //note: initialise can only be called once. in _initialize in BaseStrategy we have: require(address(want) == address(0), "Strategy already initialized");
+    //     _initialize(_vault, _strategist, _rewards, _keeper);
+    //     _initializeStrat();
+    // }
 
-    function _initializeStrat(
-        address _masterchef,
-        address _reward,
-        address _router,
-        uint256 _pid
-    ) internal {
-        require(
-            router == address(0),
-            "Masterchef Strategy already initialized"
-        );
-        require(
-            _router == uniswapRouter || _router == sushiswapRouter,
-            "incorrect router"
-        );
-
+    function _initializeStrat() internal {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 6300;
         profitFactor = 1500;
         debtThreshold = 1_000_000 * 1e18;
-        masterchef = _masterchef;
-        reward = _reward;
-        router = _router;
-        pid = _pid;
 
-        (address poolToken, , , ) = ChefLike(masterchef).poolInfo(pid);
+        pair = IBaseV1Pair(address(want));
+        want.safeApprove(masterchef, uint256(-1));
+        solid.safeApprove(address(router), uint256(-1));
+        solidex.safeApprove(address(router), uint256(-1));
 
-        require(poolToken == address(want), "wrong pid");
-
-        want.safeApprove(_masterchef, uint256(-1));
-        IERC20(reward).safeApprove(router, uint256(-1));
+        (,,,,, address t0, address t1) = pair.metadata();
+        token0 = IERC20(t0);
+        token1 = IERC20(t1);
     }
 
-    function cloneStrategy(
-        address _vault,
-        address _masterchef,
-        address _reward,
-        address _router,
-        uint256 _pid
-    ) external returns (address newStrategy) {
-        newStrategy = this.cloneStrategy(
-            _vault,
-            msg.sender,
-            msg.sender,
-            msg.sender,
-            _masterchef,
-            _reward,
-            _router,
-            _pid
-        );
-    }
+    // function cloneStrategy(
+    //     address _vault,
+    //     address _reward,
+    //     address _router,
+    //     uint256 _pid
+    // ) external returns (address newStrategy) {
+    //     newStrategy = this.cloneStrategy(
+    //         _vault,
+    //         msg.sender,
+    //         msg.sender,
+    //         msg.sender,
+    //         _masterchef,
+    //         _reward,
+    //         _router,
+    //         _pid
+    //     );
+    // }
 
-    function cloneStrategy(
-        address _vault,
-        address _strategist,
-        address _rewards,
-        address _keeper,
-        address _masterchef,
-        address _reward,
-        address _router,
-        uint256 _pid
-    ) external returns (address newStrategy) {
-        // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
-        bytes20 addressBytes = bytes20(address(this));
+    // function cloneStrategy(
+    //     address _vault,
+    //     address _strategist,
+    //     address _rewards,
+    //     address _keeper,
+    //     address _masterchef,
+    //     address _reward,
+    //     address _router,
+    //     uint256 _pid
+    // ) external returns (address newStrategy) {
+    //     // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
+    //     bytes20 addressBytes = bytes20(address(this));
 
-        assembly {
-            // EIP-1167 bytecode
-            let clone_code := mload(0x40)
-            mstore(
-                clone_code,
-                0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000
-            )
-            mstore(add(clone_code, 0x14), addressBytes)
-            mstore(
-                add(clone_code, 0x28),
-                0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000
-            )
-            newStrategy := create(0, clone_code, 0x37)
-        }
+    //     assembly {
+    //         // EIP-1167 bytecode
+    //         let clone_code := mload(0x40)
+    //         mstore(
+    //             clone_code,
+    //             0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000
+    //         )
+    //         mstore(add(clone_code, 0x14), addressBytes)
+    //         mstore(
+    //             add(clone_code, 0x28),
+    //             0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000
+    //         )
+    //         newStrategy := create(0, clone_code, 0x37)
+    //     }
 
-        Strategy(newStrategy).initialize(
-            _vault,
-            _strategist,
-            _rewards,
-            _keeper,
-            _masterchef,
-            _reward,
-            _router,
-            _pid
-        );
+    //     Strategy(newStrategy).initialize(
+    //         _vault,
+    //         _strategist,
+    //         _rewards,
+    //         _keeper,
+    //         _masterchef,
+    //         _reward,
+    //         _router,
+    //         _pid
+    //     );
 
-        emit Cloned(newStrategy);
-    }
+    //     emit Cloned(newStrategy);
+    // }
 
-    function setRouter(address _router) public onlyAuthorized {
-        require(
-            _router == uniswapRouter || _router == sushiswapRouter,
-            "incorrect router"
-        );
+    // function setRouter(address _router) public onlyAuthorized {
+    //     require(
+    //         _router == uniswapRouter || _router == sushiswapRouter,
+    //         "incorrect router"
+    //     );
 
-        router = _router;
-        IERC20(reward).safeApprove(router, 0);
-        IERC20(reward).safeApprove(router, uint256(-1));
-    }
+    //     router = _router;
+    //     IERC20(reward).safeApprove(router, 0);
+    //     IERC20(reward).safeApprove(router, uint256(-1));
+    // }
 
-    function setPath(address[] calldata _path) public onlyGovernance {
-        path = _path;
-    }
+    // function setPath(address[] calldata _path) public onlyGovernance {
+    //     path = _path;
+    // }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
 
     function name() external view override returns (string memory) {
-        return "StrategyMasterchefGeneric";
+        return "StrategySolidexStaker";
     }
 
     function estimatedTotalAssets() public view override returns (uint256) {
-        (uint256 deposited, ) =
-            ChefLike(masterchef).userInfo(pid, address(this));
+        uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
         return want.balanceOf(address(this)).add(deposited);
     }
 
@@ -218,7 +178,9 @@ contract Strategy is BaseStrategy {
             uint256 _debtPayment
         )
     {
-        ChefLike(masterchef).deposit(pid, 0);
+        address[] memory pools = new address[](1);
+        pools[0] = address(want);
+        ChefLike(masterchef).getReward(pools);
 
         _sell();
 
@@ -259,7 +221,9 @@ contract Strategy is BaseStrategy {
         }
 
         uint256 wantBalance = want.balanceOf(address(this));
-        ChefLike(masterchef).deposit(pid, wantBalance);
+        if (wantBalance > 0) {
+            ChefLike(masterchef).deposit(address(want), wantBalance);
+        }
     }
 
     function liquidatePosition(uint256 _amountNeeded)
@@ -271,13 +235,12 @@ contract Strategy is BaseStrategy {
         if (_amountNeeded > totalAssets) {
             uint256 amountToFree = _amountNeeded.sub(totalAssets);
 
-            (uint256 deposited, ) =
-                ChefLike(masterchef).userInfo(pid, address(this));
+            uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
             if (deposited < amountToFree) {
                 amountToFree = deposited;
             }
             if (deposited > 0) {
-                ChefLike(masterchef).withdraw(pid, amountToFree);
+                ChefLike(masterchef).withdraw(address(want), amountToFree);
             }
 
             _liquidatedAmount = want.balanceOf(address(this));
@@ -294,44 +257,73 @@ contract Strategy is BaseStrategy {
     }
 
     function emergencyWithdrawal(uint256 _pid) external onlyGovernance {
-        ChefLike(masterchef).emergencyWithdraw(_pid);
+        // uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
+        // ChefLike(masterchef).withdraw(address(want), deposited);
     }
 
+    function getTokenOutPath(address _token_in, address _token_out)
+        internal
+        view
+        returns (address[] memory _path)
+    {
+        bool is_weth =
+            _token_in == address(weth) || _token_out == address(weth);
+        _path = new address[](is_weth ? 2 : 3);
+        _path[0] = _token_in;
+        if (is_weth) {
+            _path[1] = _token_out;
+        } else {
+            _path[1] = address(weth);
+            _path[2] = _token_out;
+        }
+    }
+
+    event Log(uint256 indexed solidexBal);
     //sell all function
     function _sell() internal {
-        uint256 rewardBal = IERC20(reward).balanceOf(address(this));
-        if (rewardBal == 0) {
-            return;
-        }
+        uint256 solidexBal = solidex.balanceOf(address(this));
+        emit Log(solidexBal);
 
-        if (path.length == 0) {
-            address[] memory tpath;
-            if (address(want) != weth) {
-                tpath = new address[](3);
-                tpath[2] = address(want);
-            } else {
-                tpath = new address[](2);
-            }
-
-            tpath[0] = address(reward);
-            tpath[1] = weth;
-
-            IUniswapV2Router02(router).swapExactTokensForTokens(
-                rewardBal,
+        if (solidexBal != 0) {
+            router.swapExactTokensForTokensSimple(
+                solidexBal,
                 uint256(0),
-                tpath,
-                address(this),
-                now
-            );
-        } else {
-            IUniswapV2Router02(router).swapExactTokensForTokens(
-                rewardBal,
-                uint256(0),
-                path,
+                address(solidex),
+                address(token0),
+                false,
                 address(this),
                 now
             );
         }
+
+        uint256 solidBal = solid.balanceOf(address(this));
+        if (solidBal != 0) {
+            router.swapExactTokensForTokensSimple(
+                solidBal,
+                uint256(0),
+                address(solid),
+                address(token0),
+                false,
+                address(this),
+                now
+            );
+        }
+
+        uint token0Bal = token0.balanceOf(address(this));
+        if (token0Bal > 0) {
+            router.addLiquidity(
+                address(token0),
+                address(token1),
+                true,
+                token0Bal,
+                uint(0),
+                uint(0),
+                uint(0),
+                address(this),
+                now
+            );
+        }
+
     }
 
     function protectedTokens()
@@ -340,4 +332,25 @@ contract Strategy is BaseStrategy {
         override
         returns (address[] memory)
     {}
+
+    function ethToWant(uint256 _amtInWei)
+        public
+        view
+        virtual
+        override
+        returns (uint256)
+    {
+        // TODO
+        return 0;
+    }
+
+    function liquidateAllPositions()
+        internal
+        override
+        returns (uint256 _amountFreed)
+    {
+        uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
+        ChefLike(masterchef).withdraw(address(want), deposited);
+        _amountFreed = want.balanceOf(address(this));
+    }
 }

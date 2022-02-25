@@ -4,10 +4,9 @@ from useful_methods import genericStateOfVault, genericStateOfStrat
 import random
 
 
-def test_apr(accounts, token, vault, strategy, chain, strategist, whale):
+def test_apr(accounts, token, vault, strategy, chain, strategist, amount, whale):
     strategist = accounts[0]
 
-    amount = 1 * 1e18
     # Deposit to the vault
     token.approve(vault, amount, {"from": whale})
     vault.deposit(amount, {"from": whale})
@@ -16,7 +15,7 @@ def test_apr(accounts, token, vault, strategy, chain, strategist, whale):
     # harvest
     strategy.harvest()
     startingBalance = vault.totalAssets()
-    for i in range(2):
+    for i in range(4):
 
         waitBlock = 50
         # print(f'\n----wait {waitBlock} blocks----')

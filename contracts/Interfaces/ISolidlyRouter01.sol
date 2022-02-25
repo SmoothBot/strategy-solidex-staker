@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
+pragma experimental ABIEncoderV2;
 pragma solidity 0.6.12;
 
 
@@ -13,13 +14,14 @@ interface IBaseV1Pair {
     function getAmountOut(uint, address) external view returns (uint);
 }
 
+struct Route {
+    address from;
+    address to;
+    bool stable;
+}
+
 interface ISolidlyRouter01 {
 
-    // struct route {
-    //     address from;
-    //     address to;
-    //     bool stable;
-    // }
 
     function factory() external view returns (address);
     function wftm() external view returns (address);
@@ -42,6 +44,14 @@ interface ISolidlyRouter01 {
         address tokenFrom,
         address tokenTo,
         bool stable,
+        address to,
+        uint deadline
+    ) external returns (uint[] calldata amounts);
+
+    function swapExactTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        Route[] calldata routes,
         address to,
         uint deadline
     ) external returns (uint[] calldata amounts);
@@ -335,20 +345,6 @@ interface ISolidlyRouter01 {
     // }
 
 
-    // function swapExactTokensForTokens(
-    //     uint amountIn,
-    //     uint amountOutMin,
-    //     route[] calldata routes,
-    //     address to,
-    //     uint deadline
-    // ) external ensure(deadline) returns (uint[] memory amounts) {
-    //     amounts = getAmountsOut(amountIn, routes);
-    //     require(amounts[amounts.length - 1] >= amountOutMin, 'BaseV1Router: INSUFFICIENT_OUTPUT_AMOUNT');
-    //     _safeTransferFrom(
-    //         routes[0].from, msg.sender, pairFor(routes[0].from, routes[0].to, routes[0].stable), amounts[0]
-    //     );
-    //     _swap(amounts, routes, to);
-    // }
 
     // function swapExactFTMForTokens(uint amountOutMin, route[] calldata routes, address to, uint deadline)
     // external

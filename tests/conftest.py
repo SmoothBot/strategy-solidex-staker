@@ -27,6 +27,7 @@ def whale(accounts):
     # assert weth.balanceOf(acc) > 0
     yield acc
 
+
 @pytest.fixture
 def masterchef(interface):
     yield interface.ERC20("0x26E1A0d851CF28E697870e1b7F053B605C8b060F")
@@ -64,14 +65,28 @@ def keeper(accounts):
 def token(interface):
     yield interface.ERC20('0xbcab7d083Cf6a01e0DdA9ed7F8a02b47d125e682') # sAMM-USDC/MIM
 
+@pytest.fixture
+def pool(interface, token):
+    yield interface.IBaseV1Pair(token.address)
+
+
+# underlying tokens of LP
+@pytest.fixture
+def tokens(interface, pool):
+    meta = pool.metadata()
+    yield [interface.ERC20(meta[5]), interface.ERC20(meta[6])]
+    
+
+# Assumes tokens are each ~$1 -> only works for USDC stables
+@pytest.fixture
+def price(pool, token, tokens):
+    res = pool.getReserves()
+    sum = res[0] / (10 ** tokens[0].decimals()) + res[1] / (10 ** tokens[1].decimals())
+    yield sum / token.totalSupply()
 
 @pytest.fixture
-def amount(accounts, token):
-    amount = 10_000 * 10 ** token.decimals()
-    # In order to get some funds for the token you are about to use,
-    # it impersonate an exchange address to use it's funds.
-    reserve = accounts.at("0xd551234ae421e3bcba99a0da6d736074f22192ff", force=True)
-    token.transfer(accounts[0], amount, {"from": reserve})
+def amount(accounts, token, price):
+    amount = int(1_000_000 * price * (10 ** 18))
     yield amount
 
 

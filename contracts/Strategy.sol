@@ -31,28 +31,30 @@ import "./Interfaces/ISolidlyRouter01.sol";
 // Import interfaces for many popular DeFi projects, or add your own!
 //import "../interfaces/<protocol>/<Interface>.sol";
 
-contract Strategy is BaseStrategy {
+contract Strategy is BaseStrategyInitializable {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
+
+    uint constant BPS = 10000;
 
     address public constant masterchef = address(0x26E1A0d851CF28E697870e1b7F053B605C8b060F);
     IERC20 public constant solidex = IERC20(0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7);
     IERC20 public constant solid = IERC20(0x888EF71766ca594DED1F0FA3AE64eD2941740A20);
 
-    address private constant solidyRouter = address(0xa38cd27185a464914D3046f0AB9d43356B34829D);
+    address public constant solidyRouter = address(0xa38cd27185a464914D3046f0AB9d43356B34829D);
     // address private constant sushiswapRouter = address(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
-    address private constant weth = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
+    address public constant weth = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
     ISolidlyRouter01 public router = ISolidlyRouter01(solidyRouter);
     IBaseV1Pair pair;
-    IERC20 token0;
-    IERC20 token1;
+    IERC20 public token0;
+    IERC20 public token1;
 
     constructor(
         address _vault,
         uint256 _pid
-    ) public BaseStrategy(_vault) {
+    ) public BaseStrategyInitializable(_vault) {
         _initializeStrat();
     }
 
@@ -74,13 +76,16 @@ contract Strategy is BaseStrategy {
         debtThreshold = 1_000_000 * 1e18;
 
         pair = IBaseV1Pair(address(want));
-        want.safeApprove(masterchef, uint256(-1));
-        solid.safeApprove(address(router), uint256(-1));
-        solidex.safeApprove(address(router), uint256(-1));
 
         (,,,,, address t0, address t1) = pair.metadata();
         token0 = IERC20(t0);
         token1 = IERC20(t1);
+
+        want.safeApprove(masterchef, uint256(-1));
+        solid.safeApprove(address(router), uint256(-1));
+        solidex.safeApprove(address(router), uint256(-1));
+        token0.safeApprove(address(router), uint256(-1));
+        token1.safeApprove(address(router), uint256(-1));
     }
 
     // function cloneStrategy(
@@ -277,20 +282,42 @@ contract Strategy is BaseStrategy {
             _path[2] = _token_out;
         }
     }
+        //     route[] memory routes = new route[](1);
+        // routes[0].from = tokenFrom;
+        // routes[0].to = tokenTo;
+        // routes[0].stable = stable;
+
+    function getTokenOutRoute(address _token_in, address _token_out)
+        internal
+        view
+        returns (Route[] memory _route)
+    {
+        bool is_weth = _token_in == address(weth) || _token_out == address(weth);
+        _route = new Route[](is_weth ? 1 : 2);
+        _route[0].from = _token_in;
+        if (is_weth) {
+            _route[0].to = _token_out;
+            _route[0].stable = false;
+        } else {
+            _route[0].stable = false;
+            _route[1].stable = false;
+            _route[0].to = address(weth);
+            _route[1].from = address(weth);
+            _route[1].to = _token_out;
+        }
+    }
+
 
     event Log(uint256 indexed solidexBal);
     //sell all function
     function _sell() internal {
-        uint256 solidexBal = solidex.balanceOf(address(this));
-        emit Log(solidexBal);
 
+        uint256 solidexBal = solidex.balanceOf(address(this));
         if (solidexBal != 0) {
-            router.swapExactTokensForTokensSimple(
+            router.swapExactTokensForTokens(
                 solidexBal,
                 uint256(0),
-                address(solidex),
-                address(token0),
-                false,
+                getTokenOutRoute(address(solidex), address(token0)),
                 address(this),
                 now
             );
@@ -298,32 +325,42 @@ contract Strategy is BaseStrategy {
 
         uint256 solidBal = solid.balanceOf(address(this));
         if (solidBal != 0) {
-            router.swapExactTokensForTokensSimple(
+            router.swapExactTokensForTokens(
                 solidBal,
                 uint256(0),
-                address(solid),
-                address(token0),
-                false,
+                getTokenOutRoute(address(solid), address(token0)),
                 address(this),
                 now
             );
         }
 
         uint token0Bal = token0.balanceOf(address(this));
+        emit Log(token0Bal);
         if (token0Bal > 0) {
+            
+            // Sell 50% - TODO this can be done more accurately
+            router.swapExactTokensForTokensSimple(
+                token0Bal.div(2),
+                uint(0),
+                address(token0),
+                address(token1),
+                true,
+                address(this),
+                now
+            );
+
             router.addLiquidity(
                 address(token0),
                 address(token1),
                 true,
-                token0Bal,
-                uint(0),
+                token0.balanceOf(address(this)),
+                token1.balanceOf(address(this)),
                 uint(0),
                 uint(0),
                 address(this),
                 now
             );
         }
-
     }
 
     function protectedTokens()

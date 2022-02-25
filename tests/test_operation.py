@@ -2,6 +2,7 @@ import brownie
 from brownie import Contract
 from useful_methods import genericStateOfVault, genericStateOfStrat
 import random
+import pytest
 
 
 def test_apr(accounts, token, vault, strategy, chain, strategist, amount, whale):
@@ -24,16 +25,16 @@ def test_apr(accounts, token, vault, strategy, chain, strategist, amount, whale)
         # print(f'\n----harvest----')
         strategy.harvest({"from": strategist})
 
-        # genericStateOfStrat(strategy, currency, vault)
-        # genericStateOfVault(vault, currency)
+        genericStateOfStrat(strategy, token, vault)
+        genericStateOfVault(vault, token)
 
         profit = (vault.totalAssets() - startingBalance) / 1e18
         strState = vault.strategies(strategy)
         totalReturns = strState[7]
         totaleth = totalReturns / 1e18
-        # print(f'Real Profit: {profit:.5f}')
+        print(f'Real Profit: {profit:.5f}')
         difff = profit - totaleth
-        # print(f'Diff: {difff}')
+        print(f'Diff: {difff}')
 
         blocks_per_year = 2_252_857
         assert startingBalance != 0
@@ -45,9 +46,8 @@ def test_apr(accounts, token, vault, strategy, chain, strategist, amount, whale)
         print(f"implied apr: {apr:.8%}")
 
 
-def test_normal_activity(accounts, token, vault, strategy, strategist, whale, chain):
+def test_profitable_harvest(accounts, token, vault, strategy, strategist, whale, chain, price, amount):
 
-    amount = 1 * 1e18
     bbefore = token.balanceOf(whale)
 
     # Deposit to the vault
@@ -59,7 +59,9 @@ def test_normal_activity(accounts, token, vault, strategy, strategist, whale, ch
     strategy.harvest()
     for i in range(15):
         waitBlock = random.randint(10, 50)
+        chain.sleep(waitBlock)
 
+    chain.mine(1)
     strategy.harvest()
     chain.sleep(60000)
     # withdrawal
@@ -70,9 +72,8 @@ def test_normal_activity(accounts, token, vault, strategy, strategist, whale, ch
 
 
 def test_emergency_withdraw(
-    accounts, token, vault, strategy, strategist, whale, chain, pid
+    accounts, token, vault, strategy, strategist, whale, chain, gov
 ):
-
     amount = 1 * 1e18
     bbefore = token.balanceOf(whale)
 
@@ -84,57 +85,49 @@ def test_emergency_withdraw(
     # harvest deposit into staking contract
     strategy.harvest()
     assert token.balanceOf(strategy) == 0
-    strategy.emergencyWithdrawal(pid, {"from": accounts[0]})
+    strategy.emergencyWithdrawal({"from": gov})
     assert token.balanceOf(strategy) >= amount
 
 
-def test_emergency_exit(accounts, token, vault, strategy, strategist, amount):
+def test_emergency_exit(accounts, token, vault, strategy, strategist, amount, whale, decimals):
     # Deposit to the vault
-    token.approve(vault.address, amount, {"from": accounts[0]})
-    vault.deposit(amount, {"from": accounts[0]})
+    token.approve(vault.address, amount, {"from": whale})
+    vault.deposit(amount, {"from": whale})
     strategy.harvest()
-    assert token.balanceOf(strategy.address) == amount
+    assert strategy.estimatedTotalAssets() == amount
+    assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-4) == amount
 
     # set emergency and exit
     strategy.setEmergencyExit()
     strategy.harvest()
-    assert token.balanceOf(strategy.address) < amount
+    dust = (1e-5 * 10 ** decimals)
+    assert strategy.estimatedTotalAssets() < dust
 
 
-def test_profitable_harvest(accounts, token, vault, strategy, strategist, amount):
-    # Deposit to the vault
-    token.approve(vault.address, amount, {"from": accounts[0]})
-    vault.deposit(amount, {"from": accounts[0]})
-    assert token.balanceOf(vault.address) == amount
-
-    # harvest
-    strategy.harvest()
-    assert token.balanceOf(strategy.address) == amount
-
-    # You should test that the harvest method is capable of making a profit.
-    # TODO: uncomment the following lines.
-    # strategy.harvest()
-    # chain.sleep(3600 * 24)
-    # assert token.balanceOf(strategy.address) > amount
-
-
-def test_change_debt(gov, token, vault, strategy, strategist, amount):
+def test_change_debt(chain, gov, token, vault, strategy, strategist, amount, whale, decimals):
     # Deposit to the vault and harvest
-    token.approve(vault.address, amount, {"from": gov})
-    vault.deposit(amount, {"from": gov})
+    token.approve(vault.address, amount, {"from": whale})
+    vault.deposit(amount, {"from": whale})
+
     vault.updateStrategyDebtRatio(strategy.address, 5_000, {"from": gov})
     strategy.harvest()
-
-    assert token.balanceOf(strategy.address) == amount / 2
+    chain.sleep(50)
+    assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-5) == amount / 2
 
     vault.updateStrategyDebtRatio(strategy.address, 10_000, {"from": gov})
     strategy.harvest()
-    assert token.balanceOf(strategy.address) == amount
+    chain.sleep(50)
+    assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-5) == amount
 
-    # In order to pass this tests, you will need to implement prepareReturn.
-    # TODO: uncomment the following lines.
-    # vault.updateStrategyDebtRatio(strategy.address, 5_000, {"from": gov})
-    # assert token.balanceOf(strategy.address) == amount / 2
+    vault.updateStrategyDebtRatio(strategy.address, 5_000, {"from": gov})
+    strategy.harvest()
+    chain.sleep(50)
+    assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-5) == amount / 2
+
+    vault.updateStrategyDebtRatio(strategy.address, 0, {"from": gov})
+    strategy.harvest()
+    dust = (1e-5 * 10 ** decimals)
+    assert strategy.estimatedTotalAssets() < dust
 
 
 def test_sweep(gov, vault, strategy, token, amount, weth, weth_amout):
@@ -149,11 +142,6 @@ def test_sweep(gov, vault, strategy, token, amount, weth, weth_amout):
     with brownie.reverts("!shares"):
         strategy.sweep(vault.address, {"from": gov})
 
-    # TODO: If you add protected tokens to the strategy.
-    # Protected token doesn't work
-    # with brownie.reverts("!protected"):
-    #     strategy.sweep(strategy.protectedToken(), {"from": gov})
-
     weth.transfer(strategy, weth_amout, {"from": gov})
     assert weth.address != strategy.want()
     assert weth.balanceOf(gov) == 0
@@ -161,12 +149,12 @@ def test_sweep(gov, vault, strategy, token, amount, weth, weth_amout):
     assert weth.balanceOf(gov) == weth_amout
 
 
-def test_triggers(gov, vault, strategy, token, amount, weth, weth_amout):
+def test_triggers(gov, vault, strategy, token, amount, whale):
     # Deposit to the vault and harvest
-    token.approve(vault.address, amount, {"from": gov})
-    vault.deposit(amount, {"from": gov})
+    token.approve(vault.address, amount, {"from": whale})
+    vault.deposit(amount, {"from": whale})
     vault.updateStrategyDebtRatio(strategy.address, 5_000, {"from": gov})
     strategy.harvest()
 
-    strategy.harvestTrigger(0)
-    strategy.tendTrigger(0)
+    strategy.harvestTrigger(1)
+    strategy.tendTrigger(1)

@@ -14,17 +14,7 @@ def rewards(accounts):
 
 @pytest.fixture
 def whale(accounts):
-    # big binance7 wallet
-    # acc = accounts.at('0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8', force=True)
-    # big binance8 wallet
     acc = accounts.at("0xC009BC33201A85800b3593A40a178521a8e60a02", force=True)
-
-    # lots of weth account
-    # wethAcc = accounts.at("0x767Ecb395def19Ab8d1b2FCc89B3DDfBeD28fD6b", force=True)
-    # weth.approve(acc, 2 ** 256 - 1, {"from": wethAcc})
-    # weth.transfer(acc, weth.balanceOf(wethAcc), {"from": wethAcc})
-
-    # assert weth.balanceOf(acc) > 0
     yield acc
 
 
@@ -82,11 +72,16 @@ def tokens(interface, pool):
 def price(pool, token, tokens):
     res = pool.getReserves()
     sum = res[0] / (10 ** tokens[0].decimals()) + res[1] / (10 ** tokens[1].decimals())
-    yield sum / token.totalSupply()
+    yield sum / (token.totalSupply() / 1e18)
+
+    
+@pytest.fixture
+def decimals(token):
+    yield token.decimals()
 
 @pytest.fixture
-def amount(accounts, token, price):
-    amount = int(1_000_000 * price * (10 ** 18))
+def amount(price):
+    amount = int(1_000_000 * 1e18 / price)
     yield amount
 
 
@@ -140,13 +135,17 @@ def strategy(
     strategist,
     keeper,
     vault,
-    token,
-    weth,
     Strategy,
     gov
 ):
-    strategy = strategist.deploy(Strategy, vault, token.address)
+    strategy = strategist.deploy(Strategy, vault)
     strategy.setKeeper(keeper)
 
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
     yield strategy
+
+# # Function scoped isolation fixture to enable xdist.
+# # Snapshots the chain before each test and reverts after test completion.
+# @pytest.fixture(scope="function", autouse=True)
+# def shared_setup(fn_isolation):
+#     pass

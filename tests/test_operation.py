@@ -16,7 +16,7 @@ def test_apr(accounts, token, vault, strategy, chain, strategist, amount, whale)
     # harvest
     strategy.harvest()
     startingBalance = vault.totalAssets()
-    for i in range(4):
+    for i in range(2):
 
         waitBlock = 50
         # print(f'\n----wait {waitBlock} blocks----')
@@ -89,7 +89,7 @@ def test_emergency_withdraw(
     assert token.balanceOf(strategy) >= amount
 
 
-def test_emergency_exit(accounts, token, vault, strategy, strategist, amount, whale, decimals):
+def test_emergency_exit(chain, token, vault, strategy, strategist, amount, whale, decimals):
     # Deposit to the vault
     token.approve(vault.address, amount, {"from": whale})
     vault.deposit(amount, {"from": whale})
@@ -98,6 +98,7 @@ def test_emergency_exit(accounts, token, vault, strategy, strategist, amount, wh
     assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-4) == amount
 
     # set emergency and exit
+    chain.sleep(1)
     strategy.setEmergencyExit()
     strategy.harvest()
     dust = (1e-5 * 10 ** decimals)
@@ -111,17 +112,17 @@ def test_change_debt(chain, gov, token, vault, strategy, strategist, amount, wha
 
     vault.updateStrategyDebtRatio(strategy.address, 5_000, {"from": gov})
     strategy.harvest()
-    chain.sleep(50)
+    chain.sleep(10)
     assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-5) == amount / 2
 
     vault.updateStrategyDebtRatio(strategy.address, 10_000, {"from": gov})
     strategy.harvest()
-    chain.sleep(50)
+    chain.sleep(10)
     assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-5) == amount
 
     vault.updateStrategyDebtRatio(strategy.address, 5_000, {"from": gov})
     strategy.harvest()
-    chain.sleep(50)
+    chain.sleep(10)
     assert pytest.approx(strategy.estimatedTotalAssets(), rel=1e-5) == amount / 2
 
     vault.updateStrategyDebtRatio(strategy.address, 0, {"from": gov})

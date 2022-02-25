@@ -116,7 +116,7 @@ def live_strat_weth(Strategy):
 @pytest.fixture
 def vault(pm, gov, rewards, guardian, management, token):
     Vault = pm(config["dependencies"][0]).Vault
-    vault = guardian.deploy(Vault)
+    vault = Vault.deploy({'from': gov})
     vault.initialize(token, gov, rewards, "", "", guardian, {'from': gov})
     vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
     vault.setManagement(management, {"from": gov})
@@ -129,12 +129,14 @@ def strategy(
     keeper,
     vault,
     Strategy,
-    gov
+    gov,
+    chain
 ):
-    strategy = strategist.deploy(Strategy, vault)
+    strategy = Strategy.deploy(vault, {'from': strategist})
     strategy.setKeeper(keeper)
 
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
+    chain.sleep(10)
     yield strategy
 
 # Function scoped isolation fixture to enable xdist.

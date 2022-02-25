@@ -130,9 +130,9 @@ def test_change_debt(chain, gov, token, vault, strategy, strategist, amount, wha
     assert strategy.estimatedTotalAssets() < dust
 
 
-def test_sweep(gov, vault, strategy, token, amount, weth, weth_amout):
+def test_sweep(gov, vault, strategy, token, amount, whale):
     # Strategy want token doesn't work
-    token.transfer(strategy, amount, {"from": gov})
+    token.transfer(strategy, amount, {"from": whale})
     assert token.address == strategy.want()
     assert token.balanceOf(strategy) > 0
     with brownie.reverts("!want"):
@@ -141,12 +141,6 @@ def test_sweep(gov, vault, strategy, token, amount, weth, weth_amout):
     # Vault share token doesn't work
     with brownie.reverts("!shares"):
         strategy.sweep(vault.address, {"from": gov})
-
-    weth.transfer(strategy, weth_amout, {"from": gov})
-    assert weth.address != strategy.want()
-    assert weth.balanceOf(gov) == 0
-    strategy.sweep(weth, {"from": gov})
-    assert weth.balanceOf(gov) == weth_amout
 
 
 def test_triggers(gov, vault, strategy, token, amount, whale):

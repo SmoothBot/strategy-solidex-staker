@@ -266,7 +266,7 @@ contract Strategy is BaseStrategy {
         }
     }
 
-    // Sell all function
+    // Sells reward tokens and created LP
     function _sell() internal {
         if (ignoreSell)
             return;
@@ -351,7 +351,9 @@ contract Strategy is BaseStrategy {
         returns (uint256 _amountFreed)
     {
         uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
-        ChefLike(masterchef).withdraw(address(want), deposited);
+        if (deposited > 0) {
+            ChefLike(masterchef).withdraw(address(want), deposited);
+        }
         _amountFreed = want.balanceOf(address(this));
     }
 }

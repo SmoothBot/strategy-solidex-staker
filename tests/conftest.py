@@ -92,13 +92,6 @@ def weth():
 
 
 @pytest.fixture
-def weth_amount(gov, weth):
-    weth_amount = 10 ** weth.decimals()
-    gov.transfer(weth, weth_amount)
-    yield weth_amount
-
-
-@pytest.fixture
 def live_vault(pm, gov, rewards, guardian, management, token):
     Vault = pm(config["dependencies"][0]).Vault
     yield Vault.at("0xE14d13d8B3b85aF791b2AADD661cDBd5E6097Db1")
@@ -124,7 +117,7 @@ def live_strat_weth(Strategy):
 def vault(pm, gov, rewards, guardian, management, token):
     Vault = pm(config["dependencies"][0]).Vault
     vault = guardian.deploy(Vault)
-    vault.initialize(token, gov, rewards, "", "", guardian)
+    vault.initialize(token, gov, rewards, "", "", guardian, {'from': gov})
     vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
     vault.setManagement(management, {"from": gov})
     yield vault
@@ -144,8 +137,8 @@ def strategy(
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
     yield strategy
 
-# # Function scoped isolation fixture to enable xdist.
-# # Snapshots the chain before each test and reverts after test completion.
-# @pytest.fixture(scope="function", autouse=True)
-# def shared_setup(fn_isolation):
-#     pass
+# Function scoped isolation fixture to enable xdist.
+# Snapshots the chain before each test and reverts after test completion.
+@pytest.fixture(scope="function", autouse=True)
+def shared_setup(fn_isolation):
+    pass

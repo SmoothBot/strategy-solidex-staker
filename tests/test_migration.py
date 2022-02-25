@@ -19,15 +19,10 @@ def test_migration(
     bdp,
     router,
     pid,
+    amount
 ):
 
-    with brownie.reverts("Strategy already initialized"):
-        strategy.initialize(
-            vault, strategist, strategist, strategist, bdp_masterchef, bdp, router, pid
-        )
-
     # Deposit to the vault and harvest
-    amount = 1 * 1e18
     bbefore = token.balanceOf(whale)
 
     token.approve(vault.address, amount, {"from": whale})

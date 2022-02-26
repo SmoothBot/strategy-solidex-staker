@@ -38,6 +38,7 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 import "./Interfaces/ISolidlyRouter01.sol";
+import "./Interfaces/UniswapInterfaces/IUniswapV2Router01.sol";
 
 contract Strategy is BaseStrategy {
     using SafeERC20 for IERC20;
@@ -52,10 +53,10 @@ contract Strategy is BaseStrategy {
     address public constant masterchef = address(0x26E1A0d851CF28E697870e1b7F053B605C8b060F);
     IERC20 public constant solidex = IERC20(0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7);
     IERC20 public constant solid = IERC20(0x888EF71766ca594DED1F0FA3AE64eD2941740A20);
-    address public constant solidyRouter = address(0xa38cd27185a464914D3046f0AB9d43356B34829D);
     address public constant weth = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
-    ISolidlyRouter01 public router = ISolidlyRouter01(solidyRouter);
+    ISolidlyRouter01 public router = ISolidlyRouter01(0xa38cd27185a464914D3046f0AB9d43356B34829D);
+    IUniswapV2Router01 public spookyRouter = IUniswapV2Router01(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
     IBaseV1Pair pair;
     IERC20 public token0;
     IERC20 public token1;
@@ -82,6 +83,7 @@ contract Strategy is BaseStrategy {
 
         want.safeApprove(masterchef, uint256(-1));
         solid.safeApprove(address(router), uint256(-1));
+        solid.safeApprove(address(spookyRouter), uint256(-1));
         solidex.safeApprove(address(router), uint256(-1));
         token0.safeApprove(address(router), uint256(-1));
         token1.safeApprove(address(router), uint256(-1));
@@ -150,6 +152,19 @@ contract Strategy is BaseStrategy {
     /// @param _minHarvestCredit The new Min Harvest Credit
     function setMinHarvestCredit(uint256 _minHarvestCredit) external onlyAuthorized {
         minHarvestCredit = _minHarvestCredit;
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                         USE SPOOKY CONFIGURATION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Set to true to use the spooky router instead of solidly for selling solid
+    bool public useSpookyToSellSolid = true;
+
+    /// @notice set useSpookyToSellSolid
+    /// @param _useSpookyToSellSolid The new useSpookyToSellSolid setting
+    function setUseSpookyToSellSolid(bool _useSpookyToSellSolid) external onlyAuthorized {
+        useSpookyToSellSolid = _useSpookyToSellSolid;
     }
 
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
@@ -294,6 +309,27 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    function getTokenOutPath(address _token_in, address _token_out)
+        internal
+        view
+        returns (address[] memory _path)
+    {
+        bool is_weth =
+            _token_in == address(weth) || _token_out == address(weth);
+        _path = new address[](is_weth ? 2 : 3);
+        _path[0] = _token_in;
+        if (is_weth) {
+            _path[1] = _token_out;
+        } else {
+            _path[1] = address(weth);
+            _path[2] = _token_out;
+        }
+    }
+
+    function manualSell() external onlyAuthorized {
+        _sell();
+    }
+
     // Sells reward tokens and created LP
     function _sell() internal {
         if (ignoreSell)
@@ -312,13 +348,24 @@ contract Strategy is BaseStrategy {
 
         uint256 solidBal = solid.balanceOf(address(this));
         if (solidBal > rewardDust) {
-            router.swapExactTokensForTokens(
-                solidBal,
-                uint256(0),
-                getTokenOutRoute(address(solid), address(token0)),
-                address(this),
-                now
-            );
+            // TODO - use spooky to sell solid?
+            if (useSpookyToSellSolid) {
+                spookyRouter.swapExactTokensForTokens(
+                    solidBal,
+                    uint256(0),
+                    getTokenOutPath(address(solid), address(token0)),
+                    address(this),
+                    now
+                );
+            } else {
+                router.swapExactTokensForTokens(
+                    solidBal,
+                    uint256(0),
+                    getTokenOutRoute(address(solid), address(token0)),
+                    address(this),
+                    now
+                );
+            }
         }
 
         uint token0Bal = token0.balanceOf(address(this));

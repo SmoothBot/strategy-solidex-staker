@@ -71,6 +71,32 @@ def test_profitable_harvest(accounts, token, vault, strategy, strategist, whale,
     genericStateOfVault(vault, token)
 
 
+def test_profitable_harvest_w_solidly_sell(accounts, token, vault, strategy, strategist, whale, chain, price, amount):
+
+    bbefore = token.balanceOf(whale)
+
+    # Deposit to the vault
+    token.approve(vault, amount, {"from": whale})
+    vault.deposit(amount, {"from": whale})
+    assert token.balanceOf(vault.address) == amount
+    
+    strategy.setUseSpookyToSellSolid(False, {'from':strategist})
+    # harvest
+    strategy.harvest()
+    for i in range(15):
+        waitBlock = random.randint(10, 50)
+        chain.sleep(waitBlock)
+
+    chain.mine(1)
+    strategy.harvest()
+    chain.sleep(60000)
+    # withdrawal
+    vault.withdraw({"from": whale})
+    assert token.balanceOf(whale) > bbefore
+    genericStateOfStrat(strategy, token, vault)
+    genericStateOfVault(vault, token)
+
+
 def test_emergency_withdraw(
     accounts, token, vault, strategy, strategist, whale, chain, gov
 ):

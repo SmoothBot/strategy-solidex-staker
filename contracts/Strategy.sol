@@ -139,15 +139,36 @@ contract Strategy is BaseStrategy {
         ignoreSell = _ignoreSell;
     }
 
+    /*///////////////////////////////////////////////////////////////
+                        MIN MARVEST CREDIT CONFIGURATION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice When our strategy has this much credit, harvestTrigger will be true.
+    uint256 public minHarvestCredit = type(uint256).max;
+
+    /// @notice Update the Min Harvest Credit
+    /// @param _minHarvestCredit The new Min Harvest Credit
+    function setMinHarvestCredit(uint256 _minHarvestCredit) external onlyAuthorized {
+        minHarvestCredit = _minHarvestCredit;
+    }
+
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
 
     function name() external view override returns (string memory) {
         return "StrategySolidexStaker";
     }
 
+    function balanceOfWant() public view returns (uint256) {
+        return want.balanceOf(address(this));
+    }
+
+    function balanceOfStaked() public view returns (uint256) {
+        return ChefLike(masterchef).userBalances(address(this), address(want));
+    }
+
     function estimatedTotalAssets() public view override returns (uint256) {
-        uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
-        return want.balanceOf(address(this)).add(deposited);
+        // look at our staked tokens and any free tokens sitting in the strategy
+        return balanceOfStaked().add(balanceOfWant());
     }
 
     function _doClaim() internal view returns (bool) {
@@ -176,29 +197,36 @@ contract Strategy is BaseStrategy {
 
         uint256 debt = vault.strategies(address(this)).totalDebt;
 
-        if (assets >= debt) {
-            _profit = assets.sub(debt);
-        } else {
-            _loss = debt.sub(assets);
-        }
-
         _debtPayment = _debtOutstanding;
         uint256 amountToFree = _debtPayment.add(_profit);
 
-        if (amountToFree > 0 && wantBal < amountToFree) {
-            liquidatePosition(amountToFree.sub(wantBal));
+        if (assets >= debt) {
+            _debtPayment = _debtOutstanding;
+            _profit = assets - debt;
 
-            uint256 newLoose = want.balanceOf(address(this));
+            amountToFree = _profit.add(_debtPayment);
 
-            // if we didnt free enough money, prioritize paying down debt before taking profit
-            if (newLoose < amountToFree) {
-                if (newLoose <= _debtPayment) {
-                    _profit = 0;
-                    _debtPayment = newLoose;
-                } else {
-                    _profit = newLoose.sub(_debtPayment);
+            if (amountToFree > 0 && wantBal < amountToFree) {
+                liquidatePosition(amountToFree);
+
+                uint256 newLoose = want.balanceOf(address(this));
+
+                //if we dont have enough money adjust _debtOutstanding and only change profit if needed
+                if (newLoose < amountToFree) {
+                    if (_profit > newLoose) {
+                        _profit = newLoose;
+                        _debtPayment = 0;
+                    } else {
+                        _debtPayment = Math.min(
+                            newLoose - _profit,
+                            _debtPayment
+                        );
+                    }
                 }
             }
+        } else {
+            //serious loss should never happen but if it does lets record it accurately
+            _loss = debt - assets;
         }
     }
 
@@ -333,6 +361,22 @@ contract Strategy is BaseStrategy {
         override
         returns (address[] memory)
     {}
+
+    // our main trigger is regarding our DCA since there is low liquidity for our emissionToken
+    function harvestTrigger(uint256 callCostinEth)
+        public
+        view
+        override
+        returns (bool)
+    {
+        // trigger if we have enough credit
+        if (vault.creditAvailable() >= minHarvestCredit) {
+            return true;
+        }
+
+        // otherwise, we don't harvest
+        return super.harvestTrigger(callCostinEth);
+    }
 
     function ethToWant(uint256 _amtInWei)
         public

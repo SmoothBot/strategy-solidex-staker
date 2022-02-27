@@ -1,6 +1,23 @@
 import pytest
 from brownie import config, Contract
 
+fixtures = "token", "whale", "live_vault", "live_strat"
+params = [
+    pytest.param( # sAMM-USDC/MIM
+        "0xbcab7d083Cf6a01e0DdA9ed7F8a02b47d125e682", 
+        "0xC009BC33201A85800b3593A40a178521a8e60a02", 
+        "0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD",
+        "0x98E9d5B4822F7e6c3a2854D9E511E7e4cD3cb173",
+        id="sAMM-USDC/MIM",
+    ),
+    pytest.param( # sAMM-USDC/MIM
+        "0x154eA0E896695824C87985a52230674C2BE7731b", 
+        "0x6340dd65D9da8E39651229C1ba9F0ee069E7E4f8", 
+        "0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD",
+        "",
+        id="sAMM-USDC/FRAX",
+    ),
+]
 
 @pytest.fixture
 def gov(accounts):
@@ -11,43 +28,32 @@ def gov(accounts):
 def rewards(accounts):
     yield accounts[1]
 
+
 @pytest.fixture
-def whale(accounts):
-    # big binance7 wallet
-    # acc = accounts.at('0xBE0eB53F46cd790Cd13851d5EFf43D12404d33E8', force=True)
-    # big binance8 wallet
-    acc = accounts.at("0xBa37B002AbaFDd8E89a1995dA52740bbC013D992", force=True)
-
-    # lots of weth account
-    #wethAcc = accounts.at("0x767Ecb395def19Ab8d1b2FCc89B3DDfBeD28fD6b", force=True)
-    #weth.approve(acc, 2 ** 256 - 1, {"from": wethAcc})
-    #weth.transfer(acc, weth.balanceOf(wethAcc), {"from": wethAcc})
-
-    #assert weth.balanceOf(acc) > 0
+def whale(request, accounts):
+    acc = accounts.at(request.param, force=True)
     yield acc
 
 
 @pytest.fixture
-def yfi(interface):
-    yield interface.ERC20("0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e")
-
-@pytest.fixture
-def bdp_masterchef(interface):
-    yield interface.ERC20("0x0De845955E2bF089012F682fE9bC81dD5f11B372")
-
-@pytest.fixture
-def bdp(interface):
-    yield interface.ERC20("0xf3dcbc6D72a4E1892f7917b7C43b74131Df8480e")
+def token(request, interface):
+    yield interface.ERC20(request.param)
 
 
 @pytest.fixture
-def router():
-    yield Contract("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D")
+def masterchef(interface):
+    yield interface.ERC20("0x26E1A0d851CF28E697870e1b7F053B605C8b060F")
 
 
 @pytest.fixture
-def pid():
-    yield 8
+def solid(interface):
+    yield interface.ERC20("0x888EF71766ca594DED1F0FA3AE64eD2941740A20")
+
+
+@pytest.fixture
+def sex(interface):
+    yield interface.ERC20("0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7")
+
 
 @pytest.fixture
 def guardian(accounts):
@@ -70,63 +76,88 @@ def keeper(accounts):
 
 
 @pytest.fixture
-def token(yfi):
-    yield yfi
+def pool(interface, token):
+    yield interface.IBaseV1Pair(token.address)
+
+
+# underlying tokens of LP
+@pytest.fixture
+def tokens(interface, pool):
+    meta = pool.metadata()
+    yield [interface.ERC20(meta[5]), interface.ERC20(meta[6])]
+    
+
+# Assumes tokens are each ~$1 -> only works for USDC stables
+@pytest.fixture
+def price(pool, token, tokens):
+    res = pool.getReserves()
+    sum = res[0] / (10 ** tokens[0].decimals()) + res[1] / (10 ** tokens[1].decimals())
+    yield sum / (token.totalSupply() / 1e18)
+
+    
+@pytest.fixture
+def decimals(token):
+    yield token.decimals()
 
 
 @pytest.fixture
-def amount(accounts, token):
-    amount = 10_000 * 10 ** token.decimals()
-    # In order to get some funds for the token you are about to use,
-    # it impersonate an exchange address to use it's funds.
-    reserve = accounts.at("0xd551234ae421e3bcba99a0da6d736074f22192ff", force=True)
-    token.transfer(accounts[0], amount, {"from": reserve})
+def amount(price):
+    amount = int(1_000_000 * 1e18 / price)
     yield amount
 
 
 @pytest.fixture
 def weth():
-    token_address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    token_address = "0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83"
     yield Contract(token_address)
 
 
 @pytest.fixture
-def weth_amout(gov, weth):
-    weth_amout = 10 ** weth.decimals()
-    gov.transfer(weth, weth_amout)
-    yield weth_amout
-@pytest.fixture
-def live_vault(pm, gov, rewards, guardian, management, token):
-    Vault = pm(config["dependencies"][0]).Vault
-    yield Vault.at('0xE14d13d8B3b85aF791b2AADD661cDBd5E6097Db1')
+def live_vault(request, pm, gov, rewards, guardian, management, token):
+    if (request.param == ''):
+        yield ''
+    else:
+        Vault = pm(config["dependencies"][0]).Vault
+        yield Vault.at(request.param)
+
 
 @pytest.fixture
-def live_strat(Strategy):
-    yield Strategy.at('0xd4419DDc50170CB2DBb0c5B4bBB6141F3bCc923B')
+def live_strat(request, Strategy):
+    if (request.param == ''):
+        yield ''
+    else:
+        yield Strategy.at(request.param)
 
-@pytest.fixture
-def live_vault_weth(pm, gov, rewards, guardian, management, token):
-    Vault = pm(config["dependencies"][0]).Vault
-    yield Vault.at('0xa9fE4601811213c340e850ea305481afF02f5b28')
-
-@pytest.fixture
-def live_strat_weth(Strategy):
-    yield Strategy.at('0xDdf11AEB5Ce1E91CF19C7E2374B0F7A88803eF36')
 
 @pytest.fixture
 def vault(pm, gov, rewards, guardian, management, token):
     Vault = pm(config["dependencies"][0]).Vault
-    vault = guardian.deploy(Vault)
-    vault.initialize(token, gov, rewards, "", "", guardian)
+    vault = Vault.deploy({'from': gov})
+    vault.initialize(token, gov, rewards, "", "", guardian, {'from': gov})
     vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
     vault.setManagement(management, {"from": gov})
     yield vault
 
 
 @pytest.fixture
-def strategy(strategist, keeper, vault, token, weth, Strategy, gov, bdp_masterchef, bdp, router, pid):
-    strategy = strategist.deploy(Strategy, vault, bdp_masterchef, bdp, router, pid)
+def strategy(
+    strategist,
+    keeper,
+    vault,
+    Strategy,
+    gov,
+    chain
+):
+    strategy = Strategy.deploy(vault, {'from': strategist})
     strategy.setKeeper(keeper)
 
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
+    chain.sleep(10)
     yield strategy
+
+
+# Function scoped isolation fixture to enable xdist.
+# Snapshots the chain before each test and reverts after test completion.
+@pytest.fixture(scope="function", autouse=True)
+def shared_setup(fn_isolation, token, whale, live_vault, live_strat):
+    pass

@@ -1,6 +1,23 @@
 import pytest
 from brownie import config, Contract
 
+fixtures = "token", "whale", "live_vault", "live_strat"
+params = [
+    pytest.param( # sAMM-USDC/MIM
+        "0xbcab7d083Cf6a01e0DdA9ed7F8a02b47d125e682", 
+        "0xC009BC33201A85800b3593A40a178521a8e60a02", 
+        "0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD",
+        "0x98E9d5B4822F7e6c3a2854D9E511E7e4cD3cb173",
+        id="sAMM-USDC/MIM",
+    ),
+    pytest.param( # sAMM-USDC/MIM
+        "0x154eA0E896695824C87985a52230674C2BE7731b", 
+        "0x6340dd65D9da8E39651229C1ba9F0ee069E7E4f8", 
+        "0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD",
+        "",
+        id="sAMM-USDC/FRAX",
+    ),
+]
 
 @pytest.fixture
 def gov(accounts):
@@ -13,22 +30,29 @@ def rewards(accounts):
 
 
 @pytest.fixture
-def whale(accounts):
-    acc = accounts.at("0xC009BC33201A85800b3593A40a178521a8e60a02", force=True)
+def whale(request, accounts):
+    acc = accounts.at(request.param, force=True)
     yield acc
+
+
+@pytest.fixture
+def token(request, interface):
+    yield interface.ERC20(request.param)
 
 
 @pytest.fixture
 def masterchef(interface):
     yield interface.ERC20("0x26E1A0d851CF28E697870e1b7F053B605C8b060F")
 
-# @pytest.fixture
-# def solid(interface):
-#     yield interface.ERC20("0x888EF71766ca594DED1F0FA3AE64eD2941740A20")
 
-# @pytest.fixture
-# def sex(interface):
-#     yield interface.ERC20("0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7")
+@pytest.fixture
+def solid(interface):
+    yield interface.ERC20("0x888EF71766ca594DED1F0FA3AE64eD2941740A20")
+
+
+@pytest.fixture
+def sex(interface):
+    yield interface.ERC20("0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7")
 
 
 @pytest.fixture
@@ -50,10 +74,6 @@ def strategist(accounts):
 def keeper(accounts):
     yield accounts[5]
 
-
-@pytest.fixture
-def token(interface):
-    yield interface.ERC20('0xbcab7d083Cf6a01e0DdA9ed7F8a02b47d125e682') # sAMM-USDC/MIM
 
 @pytest.fixture
 def pool(interface, token):
@@ -79,6 +99,7 @@ def price(pool, token, tokens):
 def decimals(token):
     yield token.decimals()
 
+
 @pytest.fixture
 def amount(price):
     amount = int(1_000_000 * 1e18 / price)
@@ -92,25 +113,20 @@ def weth():
 
 
 @pytest.fixture
-def live_vault(pm, gov, rewards, guardian, management, token):
-    Vault = pm(config["dependencies"][0]).Vault
-    yield Vault.at("0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD")
+def live_vault(request, pm, gov, rewards, guardian, management, token):
+    if (request.param == ''):
+        yield ''
+    else:
+        Vault = pm(config["dependencies"][0]).Vault
+        yield Vault.at(request.param)
 
 
 @pytest.fixture
-def live_strat(Strategy):
-    yield Strategy.at("0x6328FC77De13Bf0f18CDe72aF4e5ee685B00F918")
-
-
-@pytest.fixture
-def live_vault_weth(pm, gov, rewards, guardian, management, token):
-    Vault = pm(config["dependencies"][0]).Vault
-    yield Vault.at("0xa9fE4601811213c340e850ea305481afF02f5b28")
-
-
-@pytest.fixture
-def live_strat_weth(Strategy):
-    yield Strategy.at("0xDdf11AEB5Ce1E91CF19C7E2374B0F7A88803eF36")
+def live_strat(request, Strategy):
+    if (request.param == ''):
+        yield ''
+    else:
+        yield Strategy.at(request.param)
 
 
 @pytest.fixture
@@ -139,8 +155,9 @@ def strategy(
     chain.sleep(10)
     yield strategy
 
+
 # Function scoped isolation fixture to enable xdist.
 # Snapshots the chain before each test and reverts after test completion.
 @pytest.fixture(scope="function", autouse=True)
-def shared_setup(fn_isolation):
+def shared_setup(fn_isolation, token, whale, live_vault, live_strat):
     pass

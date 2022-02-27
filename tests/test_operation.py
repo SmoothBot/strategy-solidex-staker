@@ -3,10 +3,14 @@ from brownie import Contract
 from useful_methods import genericStateOfVault, genericStateOfStrat
 import random
 import pytest
+import conftest as config
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_apr(accounts, token, vault, strategy, chain, strategist, amount, whale):
     strategist = accounts[0]
+
+    print(token.address)
 
     # Deposit to the vault
     token.approve(vault, amount, {"from": whale})
@@ -46,6 +50,7 @@ def test_apr(accounts, token, vault, strategy, chain, strategist, amount, whale)
         print(f"implied apr: {apr:.8%}")
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_profitable_harvest(accounts, token, vault, strategy, strategist, whale, chain, price, amount):
 
     bbefore = token.balanceOf(whale)
@@ -71,6 +76,7 @@ def test_profitable_harvest(accounts, token, vault, strategy, strategist, whale,
     genericStateOfVault(vault, token)
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_profitable_harvest_w_solidly_sell(accounts, token, vault, strategy, strategist, whale, chain, price, amount):
 
     bbefore = token.balanceOf(whale)
@@ -97,6 +103,7 @@ def test_profitable_harvest_w_solidly_sell(accounts, token, vault, strategy, str
     genericStateOfVault(vault, token)
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_emergency_withdraw(
     accounts, token, vault, strategy, strategist, whale, chain, gov
 ):
@@ -115,6 +122,7 @@ def test_emergency_withdraw(
     assert token.balanceOf(strategy) >= amount
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_emergency_exit(chain, token, vault, strategy, strategist, amount, whale, decimals):
     # Deposit to the vault
     token.approve(vault.address, amount, {"from": whale})
@@ -131,6 +139,7 @@ def test_emergency_exit(chain, token, vault, strategy, strategist, amount, whale
     assert strategy.estimatedTotalAssets() < dust
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_change_debt(chain, gov, token, vault, strategy, strategist, amount, whale, decimals):
     # Deposit to the vault and harvest
     token.approve(vault.address, amount, {"from": whale})
@@ -157,6 +166,7 @@ def test_change_debt(chain, gov, token, vault, strategy, strategist, amount, wha
     assert strategy.estimatedTotalAssets() < dust
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_sweep(gov, vault, strategy, token, amount, whale):
     # Strategy want token doesn't work
     token.transfer(strategy, amount, {"from": whale})
@@ -170,6 +180,7 @@ def test_sweep(gov, vault, strategy, token, amount, whale):
         strategy.sweep(vault.address, {"from": gov})
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_triggers(gov, vault, strategy, token, amount, whale):
     # Deposit to the vault and harvest
     token.approve(vault.address, amount, {"from": whale})

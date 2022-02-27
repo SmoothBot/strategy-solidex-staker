@@ -2,8 +2,11 @@ import brownie
 from brownie import Contract
 from useful_methods import genericStateOfVault, genericStateOfStrat
 import random
+import pytest
+import conftest as config
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_migrate_live(
     accounts,
     Strategy,
@@ -13,6 +16,9 @@ def test_migrate_live(
     chain,
     strategist
 ):
+    if (live_strat == ''):
+        pytest.skip()
+
     gov = accounts.at(live_vault.governance(), force=True)
     strategist = gov
     strategy = live_strat
@@ -29,7 +35,11 @@ def test_migrate_live(
     assert strategy.estimatedTotalAssets() == 0
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_apr_live(accounts, Strategy, token, live_vault, live_strat, chain, strategist, whale):
+    if (live_strat == ''):
+        pytest.skip()
+
     gov = accounts.at(live_vault.governance(), force=True)
     strategist = gov
     vault = live_vault

@@ -1,3 +1,7 @@
+import pytest
+import conftest as config
+
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_revoke_strategy_from_vault(token, chain, vault, strategy, amount, gov, whale):
     # Deposit to the vault and harvest
     token.approve(vault.address, amount, {"from": whale})
@@ -12,6 +16,7 @@ def test_revoke_strategy_from_vault(token, chain, vault, strategy, amount, gov, 
     assert token.balanceOf(vault.address) >= amount
 
 
+@pytest.mark.parametrize(config.fixtures, config.params, indirect=True)
 def test_revoke_emergency_exit(token, chain, vault, strategy, amount, gov, whale):
     # Deposit to the vault and harvest
     token.approve(vault.address, amount, {"from": whale})

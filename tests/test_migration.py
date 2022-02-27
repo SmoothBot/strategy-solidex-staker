@@ -15,10 +15,6 @@ def test_migration(
     strategist,
     whale,
     gov,
-    bdp_masterchef,
-    bdp,
-    router,
-    pid,
     amount
 ):
 
@@ -29,10 +25,8 @@ def test_migration(
     vault.deposit(amount, {"from": whale})
     strategy.harvest()
 
-    tx = strategy.cloneStrategy(vault, bdp_masterchef, bdp, router, pid)
-
     # migrate to a new strategy
-    new_strategy = Strategy.at(tx.return_value)
+    new_strategy = Strategy.deploy(vault, {'from': strategist})
 
     vault.migrateStrategy(strategy, new_strategy, {"from": gov})
     assert new_strategy.estimatedTotalAssets() >= amount

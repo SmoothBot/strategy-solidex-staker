@@ -94,12 +94,12 @@ def weth():
 @pytest.fixture
 def live_vault(pm, gov, rewards, guardian, management, token):
     Vault = pm(config["dependencies"][0]).Vault
-    yield Vault.at("0xE14d13d8B3b85aF791b2AADD661cDBd5E6097Db1")
+    yield Vault.at("0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD")
 
 
 @pytest.fixture
 def live_strat(Strategy):
-    yield Strategy.at("0xd4419DDc50170CB2DBb0c5B4bBB6141F3bCc923B")
+    yield Strategy.at("0x6328FC77De13Bf0f18CDe72aF4e5ee685B00F918")
 
 
 @pytest.fixture

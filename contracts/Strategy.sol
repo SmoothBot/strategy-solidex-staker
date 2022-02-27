@@ -186,11 +186,6 @@ contract Strategy is BaseStrategy {
         return balanceOfStaked().add(balanceOfWant());
     }
 
-    function _doClaim() internal view returns (bool) {
-        Amounts[] memory pending = ChefLike(masterchef).pendingRewards(address(this), pools);
-        return (pending[0].sex > 0 || pending[0].solid > 0);
-    }
-
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -284,12 +279,21 @@ contract Strategy is BaseStrategy {
         _sell();
     }
 
-    function emergencyWithdrawal() external onlyGovernance {
+    function emergencyWithdrawal(uint256 _amount) external onlyGovernance {
+        ChefLike(masterchef).withdraw(address(want), _amount);
+    }
+
+    function emergencyWithdrawalAll() external onlyGovernance {
         uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
         ChefLike(masterchef).withdraw(address(want), deposited);
     }
 
-    function getTokenOutRoute(address _token_in, address _token_out)
+    function _doClaim() internal view returns (bool) {
+        Amounts[] memory pending = ChefLike(masterchef).pendingRewards(address(this), pools);
+        return (pending[0].sex > 0 || pending[0].solid > 0);
+    }
+
+    function _getTokenOutRoute(address _token_in, address _token_out)
         internal
         view
         returns (Route[] memory _route)
@@ -309,7 +313,7 @@ contract Strategy is BaseStrategy {
         }
     }
 
-    function getTokenOutPath(address _token_in, address _token_out)
+    function _getTokenOutPath(address _token_in, address _token_out)
         internal
         view
         returns (address[] memory _path)
@@ -340,7 +344,7 @@ contract Strategy is BaseStrategy {
             router.swapExactTokensForTokens(
                 solidexBal,
                 uint256(0),
-                getTokenOutRoute(address(solidex), address(token0)),
+                _getTokenOutRoute(address(solidex), address(token0)),
                 address(this),
                 now
             );
@@ -353,7 +357,7 @@ contract Strategy is BaseStrategy {
                 spookyRouter.swapExactTokensForTokens(
                     solidBal,
                     uint256(0),
-                    getTokenOutPath(address(solid), address(token0)),
+                    _getTokenOutPath(address(solid), address(token0)),
                     address(this),
                     now
                 );
@@ -361,7 +365,7 @@ contract Strategy is BaseStrategy {
                 router.swapExactTokensForTokens(
                     solidBal,
                     uint256(0),
-                    getTokenOutRoute(address(solid), address(token0)),
+                    _getTokenOutRoute(address(solid), address(token0)),
                     address(this),
                     now
                 );
@@ -409,7 +413,6 @@ contract Strategy is BaseStrategy {
         returns (address[] memory)
     {}
 
-    // our main trigger is regarding our DCA since there is low liquidity for our emissionToken
     function harvestTrigger(uint256 callCostinEth)
         public
         view
@@ -432,7 +435,6 @@ contract Strategy is BaseStrategy {
         override
         returns (uint256)
     {
-        // TODO
         return 0;
     }
 

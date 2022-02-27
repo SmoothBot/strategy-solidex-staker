@@ -111,7 +111,7 @@ def test_emergency_withdraw(
     # harvest deposit into staking contract
     strategy.harvest()
     assert token.balanceOf(strategy) == 0
-    strategy.emergencyWithdrawal({"from": gov})
+    strategy.emergencyWithdrawalAll({"from": gov})
     assert token.balanceOf(strategy) >= amount
 
 

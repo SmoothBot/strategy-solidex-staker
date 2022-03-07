@@ -1,33 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Feel free to change the license, but this is what we use
-
-// Feel free to change this version of Solidity. We support >=0.6.0 <0.7.0;
 pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
-
-struct Amounts {
-    uint256 solid;
-    uint256 sex;
-}
-
-interface ChefLike {
-
-    function deposit(address _pool, uint256 _amount) external;
-
-    function getReward(address[] calldata pools) external;
-
-    function withdraw(address _pool, uint256 _amount) external;
-
-    function userBalances(address _user, address _pool)
-        external
-        view
-        returns (uint256 _balance);
-
-    function pendingRewards(address _user, address[] calldata pools)
-        external
-        view
-        returns (Amounts[] memory pending);
-}
 
 // These are the core Yearn libraries
 import "@yearnvaults/contracts/BaseStrategy.sol";
@@ -39,6 +12,10 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 import "./Interfaces/ISolidlyRouter01.sol";
 import "./Interfaces/UniswapInterfaces/IUniswapV2Router01.sol";
+import "./Interfaces/oxdao/IMultiRewards.sol";
+import "./Interfaces/oxdao/IOxLens.sol";
+import "./Interfaces/oxdao/IUserProxy.sol";
+
 
 contract Strategy is BaseStrategy {
     using SafeERC20 for IERC20;
@@ -50,8 +27,15 @@ contract Strategy is BaseStrategy {
     //////////////////////////////////////////////////////////////*/
 
     uint constant BPS = 10000;
-    address public constant masterchef = address(0x26E1A0d851CF28E697870e1b7F053B605C8b060F);
-    IERC20 public constant solidex = IERC20(0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7);
+    IUserProxy public constant userProxyInterface = IUserProxy(0xDA00BFf59141cA6375c4Ae488DA7b387960b4F10);
+    IOxLens public constant oxLens = IOxLens(0xDA00137c79B30bfE06d04733349d98Cf06320e69);
+    
+    address public stakingPool;
+    address public userProxy;
+    IMultiRewards public multiRewards;
+
+
+    IERC20 public constant oxd = IERC20(0xB40C1882fA3cDf3c0D26Ae688a7bA306845f07b0);
     IERC20 public constant solid = IERC20(0x888EF71766ca594DED1F0FA3AE64eD2941740A20);
     address public constant weth = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
@@ -62,12 +46,18 @@ contract Strategy is BaseStrategy {
     IERC20 public token1;
     address[] private pools = new address[](1);
     
+    event Log(
+        uint256 indexed d0,
+        uint256 indexed d1,
+        uint256 indexed d2
+    );
 
     /*///////////////////////////////////////////////////////////////
                               CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
     constructor(
-        address _vault
+        address _vault,
+        address _stakingPool
     ) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 6300;
@@ -81,12 +71,15 @@ contract Strategy is BaseStrategy {
         token1 = IERC20(t1);
         pools[0] = address(want);
 
-        want.safeApprove(masterchef, uint256(-1));
+        want.safeApprove(address(userProxyInterface), uint256(-1));
         solid.safeApprove(address(router), uint256(-1));
         solid.safeApprove(address(spookyRouter), uint256(-1));
-        solidex.safeApprove(address(router), uint256(-1));
+        oxd.safeApprove(address(router), uint256(-1));
         token0.safeApprove(address(router), uint256(-1));
         token1.safeApprove(address(router), uint256(-1));
+
+        stakingPool = _stakingPool;
+        multiRewards = IMultiRewards(stakingPool);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -170,7 +163,7 @@ contract Strategy is BaseStrategy {
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
 
     function name() external view override returns (string memory) {
-        return "StrategySolidexStaker";
+        return "StrategyOXDStaker";
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -178,7 +171,7 @@ contract Strategy is BaseStrategy {
     }
 
     function balanceOfStaked() public view returns (uint256) {
-        return ChefLike(masterchef).userBalances(address(this), address(want));
+        return multiRewards.balanceOf(userProxy);
     }
 
     function estimatedTotalAssets() public view override returns (uint256) {
@@ -197,7 +190,7 @@ contract Strategy is BaseStrategy {
     {
 
         if (_doClaim()) {
-            ChefLike(masterchef).getReward(pools);
+            userProxyInterface.claimStakingRewards();
         }
 
         _sell();
@@ -240,6 +233,7 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    
     function adjustPosition(uint256 _debtOutstanding) internal override {
         if (emergencyExit) {
             return;
@@ -247,7 +241,11 @@ contract Strategy is BaseStrategy {
 
         uint256 wantBalance = want.balanceOf(address(this));
         if (wantBalance > 1e6) {
-            ChefLike(masterchef).deposit(address(want), wantBalance);
+            emit Log(wantBalance, 0, 0);
+            userProxyInterface.depositLpAndStake(address(want), wantBalance);
+            if (userProxy == address(0)) {
+                userProxy = oxLens.userProxyByAccount(address(this));
+            }
         }
     }
 
@@ -260,12 +258,12 @@ contract Strategy is BaseStrategy {
         if (_amountNeeded > totalAssets) {
             uint256 amountToFree = _amountNeeded.sub(totalAssets);
 
-            uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
+            uint256 deposited = balanceOfStaked();
             if (deposited < amountToFree) {
                 amountToFree = deposited;
             }
             if (deposited > 0) {
-                ChefLike(masterchef).withdraw(address(want), amountToFree);
+                userProxyInterface.unstakeLpAndWithdraw(address(want), amountToFree);
             }
 
             _liquidatedAmount = want.balanceOf(address(this));
@@ -280,17 +278,19 @@ contract Strategy is BaseStrategy {
     }
 
     function emergencyWithdrawal(uint256 _amount) external onlyGovernance {
-        ChefLike(masterchef).withdraw(address(want), _amount);
+        userProxyInterface.unstakeLpAndWithdraw(address(want), _amount);
     }
 
     function emergencyWithdrawalAll() external onlyGovernance {
-        uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
-        ChefLike(masterchef).withdraw(address(want), deposited);
+        uint256 deposited = balanceOfStaked();
+        userProxyInterface.unstakeLpAndWithdraw(address(want), deposited);
     }
 
     function _doClaim() internal view returns (bool) {
-        Amounts[] memory pending = ChefLike(masterchef).pendingRewards(address(this), pools);
-        return (pending[0].sex > 0 || pending[0].solid > 0);
+        IUserProxy.RewardToken[] memory rewards = oxLens.rewardTokensPositionsOf(address(this), stakingPool);
+        uint256 balanceSolid = rewards[0].earned;
+        uint256 balanceOXD = rewards[1].earned;
+        return (balanceOXD > 0 || balanceSolid > 0);
     }
 
     function _getTokenOutRoute(address _token_in, address _token_out)
@@ -339,12 +339,12 @@ contract Strategy is BaseStrategy {
         if (ignoreSell)
             return;
 
-        uint256 solidexBal = solidex.balanceOf(address(this));
-        if (solidexBal > rewardDust) {
+        uint256 oxdBal = oxd.balanceOf(address(this));
+        if (oxdBal > rewardDust) {
             router.swapExactTokensForTokens(
-                solidexBal,
+                oxdBal,
                 uint256(0),
-                _getTokenOutRoute(address(solidex), address(token0)),
+                _getTokenOutRoute(address(oxd), address(token0)),
                 address(this),
                 now
             );
@@ -352,7 +352,6 @@ contract Strategy is BaseStrategy {
 
         uint256 solidBal = solid.balanceOf(address(this));
         if (solidBal > rewardDust) {
-            // TODO - use spooky to sell solid?
             if (useSpookyToSellSolid) {
                 spookyRouter.swapExactTokensForTokens(
                     solidBal,
@@ -443,9 +442,9 @@ contract Strategy is BaseStrategy {
         override
         returns (uint256 _amountFreed)
     {
-        uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
+        uint256 deposited = balanceOfStaked();
         if (deposited > 0) {
-            ChefLike(masterchef).withdraw(address(want), deposited);
+            userProxyInterface.unstakeLpAndWithdraw(address(want), deposited);
         }
         _amountFreed = want.balanceOf(address(this));
     }

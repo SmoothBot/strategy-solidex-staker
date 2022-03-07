@@ -45,12 +45,6 @@ contract Strategy is BaseStrategy {
     IERC20 public token0;
     IERC20 public token1;
     address[] private pools = new address[](1);
-    
-    event Log(
-        uint256 indexed d0,
-        uint256 indexed d1,
-        uint256 indexed d2
-    );
 
     /*///////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -241,7 +235,6 @@ contract Strategy is BaseStrategy {
 
         uint256 wantBalance = want.balanceOf(address(this));
         if (wantBalance > 1e6) {
-            emit Log(wantBalance, 0, 0);
             userProxyInterface.depositLpAndStake(address(want), wantBalance);
             if (userProxy == address(0)) {
                 userProxy = oxLens.userProxyByAccount(address(this));

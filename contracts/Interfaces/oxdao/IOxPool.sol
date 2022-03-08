@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.6.12;
-// import "./ISolidlyLens.sol";
 
 interface IOxPool {
     function stakingAddress() external view returns (address);
 
     function solidPoolAddress() external view returns (address);
-
-    // function solidPoolInfo() external view returns (ISolidlyLens.Pool memory);
 
     function depositLpAndStake(uint256) external;
 

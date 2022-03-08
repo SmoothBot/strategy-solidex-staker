@@ -14,7 +14,6 @@ import "./Interfaces/ISolidlyRouter01.sol";
 import "./Interfaces/UniswapInterfaces/IUniswapV2Router01.sol";
 import "./Interfaces/oxdao/IMultiRewards.sol";
 import "./Interfaces/oxdao/IOxLens.sol";
-import "./Interfaces/oxdao/IUserProxy.sol";
 import "./Interfaces/oxdao/IOxPool.sol";
 
 
@@ -26,24 +25,22 @@ contract Strategy is BaseStrategy {
     /*///////////////////////////////////////////////////////////////
                                IMMUTABLES
     //////////////////////////////////////////////////////////////*/
-
     uint constant BPS = 10000;
-    // IUserProxy public constant userProxyInterface = IUserProxy(0xDA00BFf59141cA6375c4Ae488DA7b387960b4F10);
     IOxLens public constant oxLens = IOxLens(0xDA00137c79B30bfE06d04733349d98Cf06320e69);
     
-    address public oxPoolAddress;
-    address public stakingAddress;
-
     IERC20 public constant oxd = IERC20(0xB40C1882fA3cDf3c0D26Ae688a7bA306845f07b0);
     IERC20 public constant solid = IERC20(0x888EF71766ca594DED1F0FA3AE64eD2941740A20);
     address public constant weth = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
-    ISolidlyRouter01 public router = ISolidlyRouter01(0xa38cd27185a464914D3046f0AB9d43356B34829D);
-    IUniswapV2Router01 public spookyRouter = IUniswapV2Router01(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
+    ISolidlyRouter01 public constant router = ISolidlyRouter01(0xa38cd27185a464914D3046f0AB9d43356B34829D);
+    IUniswapV2Router01 public constant spookyRouter = IUniswapV2Router01(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
     IBaseV1Pair pair;
     IERC20 public token0;
     IERC20 public token1;
     address[] private pools = new address[](1);
+
+    address public oxPoolAddress;
+    address public stakingAddress;
 
     /*///////////////////////////////////////////////////////////////
                               CONSTRUCTOR

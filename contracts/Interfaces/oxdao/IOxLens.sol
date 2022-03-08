@@ -160,10 +160,10 @@ interface IOxLens {
     //     view
     //     returns (address);
 
-    // function oxPoolBySolidPool(address solidPoolAddress)
-    //     external
-    //     view
-    //     returns (address);
+    function oxPoolBySolidPool(address solidPoolAddress)
+        external
+        view
+        returns (address);
 
     // function stakingRewardsBySolidPool(address solidPoolAddress)
     //     external

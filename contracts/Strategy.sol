@@ -15,6 +15,7 @@ import "./Interfaces/UniswapInterfaces/IUniswapV2Router01.sol";
 import "./Interfaces/oxdao/IMultiRewards.sol";
 import "./Interfaces/oxdao/IOxLens.sol";
 import "./Interfaces/oxdao/IUserProxy.sol";
+import "./Interfaces/oxdao/IOxPool.sol";
 
 
 contract Strategy is BaseStrategy {
@@ -27,13 +28,11 @@ contract Strategy is BaseStrategy {
     //////////////////////////////////////////////////////////////*/
 
     uint constant BPS = 10000;
-    IUserProxy public constant userProxyInterface = IUserProxy(0xDA00BFf59141cA6375c4Ae488DA7b387960b4F10);
+    // IUserProxy public constant userProxyInterface = IUserProxy(0xDA00BFf59141cA6375c4Ae488DA7b387960b4F10);
     IOxLens public constant oxLens = IOxLens(0xDA00137c79B30bfE06d04733349d98Cf06320e69);
     
-    address public stakingPool;
-    address public userProxy;
-    IMultiRewards public multiRewards;
-
+    address public oxPoolAddress;
+    address public stakingAddress;
 
     IERC20 public constant oxd = IERC20(0xB40C1882fA3cDf3c0D26Ae688a7bA306845f07b0);
     IERC20 public constant solid = IERC20(0x888EF71766ca594DED1F0FA3AE64eD2941740A20);
@@ -50,8 +49,7 @@ contract Strategy is BaseStrategy {
                               CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
     constructor(
-        address _vault,
-        address _stakingPool
+        address _vault
     ) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 6300;
@@ -65,15 +63,16 @@ contract Strategy is BaseStrategy {
         token1 = IERC20(t1);
         pools[0] = address(want);
 
-        want.safeApprove(address(userProxyInterface), uint256(-1));
+        oxPoolAddress = oxLens.oxPoolBySolidPool(address(want));
+        stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
+
+        want.safeApprove(address(oxPoolAddress), uint256(-1));
         solid.safeApprove(address(router), uint256(-1));
         solid.safeApprove(address(spookyRouter), uint256(-1));
         oxd.safeApprove(address(router), uint256(-1));
         token0.safeApprove(address(router), uint256(-1));
         token1.safeApprove(address(router), uint256(-1));
 
-        stakingPool = _stakingPool;
-        multiRewards = IMultiRewards(stakingPool);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -165,7 +164,7 @@ contract Strategy is BaseStrategy {
     }
 
     function balanceOfStaked() public view returns (uint256) {
-        return multiRewards.balanceOf(userProxy);
+        return IMultiRewards(stakingAddress).balanceOf(address(this));
     }
 
     function estimatedTotalAssets() public view override returns (uint256) {
@@ -184,7 +183,7 @@ contract Strategy is BaseStrategy {
     {
 
         if (_doClaim()) {
-            userProxyInterface.claimStakingRewards();
+            _claim();
         }
 
         _sell();
@@ -235,10 +234,7 @@ contract Strategy is BaseStrategy {
 
         uint256 wantBalance = want.balanceOf(address(this));
         if (wantBalance > 1e6) {
-            userProxyInterface.depositLpAndStake(address(want), wantBalance);
-            if (userProxy == address(0)) {
-                userProxy = oxLens.userProxyByAccount(address(this));
-            }
+            _deposit(wantBalance);
         }
     }
 
@@ -256,7 +252,7 @@ contract Strategy is BaseStrategy {
                 amountToFree = deposited;
             }
             if (deposited > 0) {
-                userProxyInterface.unstakeLpAndWithdraw(address(want), amountToFree);
+                _withdraw(amountToFree);
             }
 
             _liquidatedAmount = want.balanceOf(address(this));
@@ -271,18 +267,17 @@ contract Strategy is BaseStrategy {
     }
 
     function emergencyWithdrawal(uint256 _amount) external onlyGovernance {
-        userProxyInterface.unstakeLpAndWithdraw(address(want), _amount);
+        _withdraw(_amount);
     }
 
     function emergencyWithdrawalAll() external onlyGovernance {
         uint256 deposited = balanceOfStaked();
-        userProxyInterface.unstakeLpAndWithdraw(address(want), deposited);
+        _withdraw(deposited);
     }
 
     function _doClaim() internal view returns (bool) {
-        IUserProxy.RewardToken[] memory rewards = oxLens.rewardTokensPositionsOf(address(this), stakingPool);
-        uint256 balanceSolid = rewards[0].earned;
-        uint256 balanceOXD = rewards[1].earned;
+        uint256 balanceSolid = IMultiRewards(stakingAddress).rewardPerToken(address(solid));
+        uint256 balanceOXD = IMultiRewards(stakingAddress).rewardPerToken(address(oxd));
         return (balanceOXD > 0 || balanceSolid > 0);
     }
 
@@ -398,6 +393,33 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    function _deposit(uint256 _amount) internal {
+        uint256 stakingBalanceBefore = IERC20(stakingAddress).balanceOf(address(this));
+
+        // Deposit 
+        IOxPool(oxPoolAddress).depositLp(_amount);
+
+        // Stake
+        IMultiRewards(stakingAddress).stake(_amount);
+
+        // Check amount staked
+        uint256 stakingBalanceAfter = IERC20(stakingAddress).balanceOf(address(this));
+        assert(stakingBalanceAfter == stakingBalanceBefore + _amount);
+    }
+
+    function _withdraw(uint256 _amount) internal {
+        // Unstake
+        IMultiRewards(stakingAddress).withdraw(_amount);
+
+        // withdraw LP
+        IOxPool(oxPoolAddress).withdrawLp(_amount);
+    }
+
+    function _claim() internal {
+        IMultiRewards(stakingAddress).getReward();
+    }
+
+
     function protectedTokens()
         internal
         view
@@ -437,7 +459,7 @@ contract Strategy is BaseStrategy {
     {
         uint256 deposited = balanceOfStaked();
         if (deposited > 0) {
-            userProxyInterface.unstakeLpAndWithdraw(address(want), deposited);
+            _withdraw(deposited);
         }
         _amountFreed = want.balanceOf(address(this));
     }

@@ -151,6 +151,20 @@ contract Strategy is BaseStrategy {
         useSpookyToSellSolid = _useSpookyToSellSolid;
     }
 
+    /*///////////////////////////////////////////////////////////////
+                         DO SELL OXD SPOOKY CONFIGURATION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Writing this before OXD v2 is live, this will be enabled when the LP pool is live
+    bool public doSellOXD = false;
+
+    /// @notice set doSellOXD
+    /// @param _doSellOXD The new doSellOXD setting
+    function setdoSellOXD(bool _doSellOXD) external onlyAuthorized {
+        doSellOXD = _doSellOXD;
+    }
+
+
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
 
     function name() external view override returns (string memory) {
@@ -325,15 +339,17 @@ contract Strategy is BaseStrategy {
         if (ignoreSell)
             return;
 
-        uint256 oxdBal = oxd.balanceOf(address(this));
-        if (oxdBal > rewardDust) {
-            router.swapExactTokensForTokens(
-                oxdBal,
-                uint256(0),
-                _getTokenOutRoute(address(oxd), address(token0)),
-                address(this),
-                now
-            );
+        if (doSellOXD) {
+            uint256 oxdBal = oxd.balanceOf(address(this));
+            if (oxdBal > rewardDust) {
+                router.swapExactTokensForTokens(
+                    oxdBal,
+                    uint256(0),
+                    _getTokenOutRoute(address(oxd), address(token0)),
+                    address(this),
+                    now
+                );
+            }
         }
 
         uint256 solidBal = solid.balanceOf(address(this));
@@ -436,7 +452,7 @@ contract Strategy is BaseStrategy {
             return true;
         }
 
-        // otherwise, we don't harvest
+        // otherwise, we use BaseStrategies approach
         return super.harvestTrigger(callCostinEth);
     }
 

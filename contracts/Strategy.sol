@@ -67,6 +67,7 @@ contract Strategy is BaseStrategy {
         stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
 
         want.safeApprove(address(oxPoolAddress), uint256(-1));
+        IERC20(oxPoolAddress).safeApprove(address(stakingAddress), uint256(-1));
         solid.safeApprove(address(router), uint256(-1));
         solid.safeApprove(address(spookyRouter), uint256(-1));
         oxd.safeApprove(address(router), uint256(-1));

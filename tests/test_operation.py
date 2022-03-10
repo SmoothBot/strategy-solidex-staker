@@ -63,7 +63,7 @@ def test_profitable_harvest(accounts, token, vault, strategy, strategist, whale,
     # harvest
     strategy.harvest()
     for i in range(15):
-        waitBlock = random.randint(10, 50)
+        waitBlock = random.randint(100, 500)
         chain.sleep(waitBlock)
 
     chain.mine(1)

@@ -4,19 +4,19 @@ from brownie import config, Contract
 fixtures = "token", "whale", "live_vault", "live_strat"
 params = [
     pytest.param( # sAMM-USDC/MIM
-        "0xbcab7d083Cf6a01e0DdA9ed7F8a02b47d125e682", 
-        "0xC009BC33201A85800b3593A40a178521a8e60a02", 
+        "0xbcab7d083Cf6a01e0DdA9ed7F8a02b47d125e682",
+        "0xC009BC33201A85800b3593A40a178521a8e60a02",
         "0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD",
         "0x98E9d5B4822F7e6c3a2854D9E511E7e4cD3cb173",
         id="sAMM-USDC/MIM",
     ),
-    pytest.param( # sAMM-USDC/MIM
-        "0x154eA0E896695824C87985a52230674C2BE7731b", 
-        "0x6340dd65D9da8E39651229C1ba9F0ee069E7E4f8", 
-        "0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD",
-        "",
-        id="sAMM-USDC/FRAX",
-    ),
+    # pytest.param( # sAMM-USDC/MIM
+    #     "0x154eA0E896695824C87985a52230674C2BE7731b", 
+    #     "0x6340dd65D9da8E39651229C1ba9F0ee069E7E4f8", 
+    #     "0x7ff7751E0a2cf789A035caE3ab79c27fD6B0D6cD",
+    #     "",
+    #     id="sAMM-USDC/FRAX",
+    # ),
 ]
 
 @pytest.fixture
@@ -141,13 +141,13 @@ def vault(pm, gov, rewards, guardian, management, token):
 
 @pytest.fixture
 def strategy(
-    strategist,
+    strategist,                                                             
     keeper,
     vault,
     Strategy,
     gov,
     chain
-):
+):                                                                      
     strategy = Strategy.deploy(vault, {'from': strategist})
     strategy.setKeeper(keeper)
 

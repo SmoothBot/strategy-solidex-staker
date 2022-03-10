@@ -1,33 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
-// Feel free to change the license, but this is what we use
-
-// Feel free to change this version of Solidity. We support >=0.6.0 <0.7.0;
 pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
-
-struct Amounts {
-    uint256 solid;
-    uint256 sex;
-}
-
-interface ChefLike {
-
-    function deposit(address _pool, uint256 _amount) external;
-
-    function getReward(address[] calldata pools) external;
-
-    function withdraw(address _pool, uint256 _amount) external;
-
-    function userBalances(address _user, address _pool)
-        external
-        view
-        returns (uint256 _balance);
-
-    function pendingRewards(address _user, address[] calldata pools)
-        external
-        view
-        returns (Amounts[] memory pending);
-}
 
 // These are the core Yearn libraries
 import "@yearnvaults/contracts/BaseStrategy.sol";
@@ -39,6 +12,10 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 import "./Interfaces/ISolidlyRouter01.sol";
 import "./Interfaces/UniswapInterfaces/IUniswapV2Router01.sol";
+import "./Interfaces/oxdao/IMultiRewards.sol";
+import "./Interfaces/oxdao/IOxLens.sol";
+import "./Interfaces/oxdao/IOxPool.sol";
+
 
 contract Strategy is BaseStrategy {
     using SafeERC20 for IERC20;
@@ -48,20 +25,22 @@ contract Strategy is BaseStrategy {
     /*///////////////////////////////////////////////////////////////
                                IMMUTABLES
     //////////////////////////////////////////////////////////////*/
-
     uint constant BPS = 10000;
-    address public constant masterchef = address(0x26E1A0d851CF28E697870e1b7F053B605C8b060F);
-    IERC20 public constant solidex = IERC20(0xD31Fcd1f7Ba190dBc75354046F6024A9b86014d7);
+    IOxLens public constant oxLens = IOxLens(0xDA00137c79B30bfE06d04733349d98Cf06320e69);
+    
+    IERC20 public constant oxd = IERC20(0xc5A9848b9d145965d821AaeC8fA32aaEE026492d);
     IERC20 public constant solid = IERC20(0x888EF71766ca594DED1F0FA3AE64eD2941740A20);
     address public constant weth = address(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
-    ISolidlyRouter01 public router = ISolidlyRouter01(0xa38cd27185a464914D3046f0AB9d43356B34829D);
-    IUniswapV2Router01 public spookyRouter = IUniswapV2Router01(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
+    ISolidlyRouter01 public constant router = ISolidlyRouter01(0xa38cd27185a464914D3046f0AB9d43356B34829D);
+    IUniswapV2Router01 public constant spookyRouter = IUniswapV2Router01(0xF491e7B69E4244ad4002BC14e878a34207E38c29);
     IBaseV1Pair pair;
     IERC20 public token0;
     IERC20 public token1;
     address[] private pools = new address[](1);
-    
+
+    address public oxPoolAddress;
+    address public stakingAddress;
 
     /*///////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -81,12 +60,17 @@ contract Strategy is BaseStrategy {
         token1 = IERC20(t1);
         pools[0] = address(want);
 
-        want.safeApprove(masterchef, uint256(-1));
+        oxPoolAddress = oxLens.oxPoolBySolidPool(address(want));
+        stakingAddress = IOxPool(oxPoolAddress).stakingAddress();
+
+        want.safeApprove(address(oxPoolAddress), uint256(-1));
+        IERC20(oxPoolAddress).safeApprove(address(stakingAddress), uint256(-1));
         solid.safeApprove(address(router), uint256(-1));
         solid.safeApprove(address(spookyRouter), uint256(-1));
-        solidex.safeApprove(address(router), uint256(-1));
+        oxd.safeApprove(address(router), uint256(-1));
         token0.safeApprove(address(router), uint256(-1));
         token1.safeApprove(address(router), uint256(-1));
+
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -167,10 +151,24 @@ contract Strategy is BaseStrategy {
         useSpookyToSellSolid = _useSpookyToSellSolid;
     }
 
+    /*///////////////////////////////////////////////////////////////
+                         DO SELL OXD SPOOKY CONFIGURATION
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Writing this before OXD v2 is live, this will be enabled when the LP pool is live
+    bool public doSellOXD = false;
+
+    /// @notice set doSellOXD
+    /// @param _doSellOXD The new doSellOXD setting
+    function setdoSellOXD(bool _doSellOXD) external onlyAuthorized {
+        doSellOXD = _doSellOXD;
+    }
+
+
     // ******** OVERRIDE THESE METHODS FROM BASE CONTRACT ************
 
     function name() external view override returns (string memory) {
-        return "StrategySolidexStaker";
+        return "StrategyOXDStaker";
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -178,7 +176,7 @@ contract Strategy is BaseStrategy {
     }
 
     function balanceOfStaked() public view returns (uint256) {
-        return ChefLike(masterchef).userBalances(address(this), address(want));
+        return IMultiRewards(stakingAddress).balanceOf(address(this));
     }
 
     function estimatedTotalAssets() public view override returns (uint256) {
@@ -197,7 +195,7 @@ contract Strategy is BaseStrategy {
     {
 
         if (_doClaim()) {
-            ChefLike(masterchef).getReward(pools);
+            _claim();
         }
 
         _sell();
@@ -240,6 +238,7 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    
     function adjustPosition(uint256 _debtOutstanding) internal override {
         if (emergencyExit) {
             return;
@@ -247,7 +246,7 @@ contract Strategy is BaseStrategy {
 
         uint256 wantBalance = want.balanceOf(address(this));
         if (wantBalance > 1e6) {
-            ChefLike(masterchef).deposit(address(want), wantBalance);
+            _deposit(wantBalance);
         }
     }
 
@@ -260,12 +259,12 @@ contract Strategy is BaseStrategy {
         if (_amountNeeded > totalAssets) {
             uint256 amountToFree = _amountNeeded.sub(totalAssets);
 
-            uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
+            uint256 deposited = balanceOfStaked();
             if (deposited < amountToFree) {
                 amountToFree = deposited;
             }
             if (deposited > 0) {
-                ChefLike(masterchef).withdraw(address(want), amountToFree);
+                _withdraw(amountToFree);
             }
 
             _liquidatedAmount = want.balanceOf(address(this));
@@ -280,17 +279,18 @@ contract Strategy is BaseStrategy {
     }
 
     function emergencyWithdrawal(uint256 _amount) external onlyGovernance {
-        ChefLike(masterchef).withdraw(address(want), _amount);
+        _withdraw(_amount);
     }
 
     function emergencyWithdrawalAll() external onlyGovernance {
-        uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
-        ChefLike(masterchef).withdraw(address(want), deposited);
+        uint256 deposited = balanceOfStaked();
+        _withdraw(deposited);
     }
 
     function _doClaim() internal view returns (bool) {
-        Amounts[] memory pending = ChefLike(masterchef).pendingRewards(address(this), pools);
-        return (pending[0].sex > 0 || pending[0].solid > 0);
+        uint256 balanceSolid = IMultiRewards(stakingAddress).rewardPerToken(address(solid));
+        uint256 balanceOXD = IMultiRewards(stakingAddress).rewardPerToken(address(oxd));
+        return (balanceOXD > 0 || balanceSolid > 0);
     }
 
     function _getTokenOutRoute(address _token_in, address _token_out)
@@ -339,20 +339,21 @@ contract Strategy is BaseStrategy {
         if (ignoreSell)
             return;
 
-        uint256 solidexBal = solidex.balanceOf(address(this));
-        if (solidexBal > rewardDust) {
-            router.swapExactTokensForTokens(
-                solidexBal,
-                uint256(0),
-                _getTokenOutRoute(address(solidex), address(token0)),
-                address(this),
-                now
-            );
+        if (doSellOXD) {
+            uint256 oxdBal = oxd.balanceOf(address(this));
+            if (oxdBal > rewardDust) {
+                router.swapExactTokensForTokens(
+                    oxdBal,
+                    uint256(0),
+                    _getTokenOutRoute(address(oxd), address(token0)),
+                    address(this),
+                    now
+                );
+            }
         }
 
         uint256 solidBal = solid.balanceOf(address(this));
         if (solidBal > rewardDust) {
-            // TODO - use spooky to sell solid?
             if (useSpookyToSellSolid) {
                 spookyRouter.swapExactTokensForTokens(
                     solidBal,
@@ -406,6 +407,33 @@ contract Strategy is BaseStrategy {
         }
     }
 
+    function _deposit(uint256 _amount) internal {
+        uint256 stakingBalanceBefore = IERC20(stakingAddress).balanceOf(address(this));
+
+        // Deposit 
+        IOxPool(oxPoolAddress).depositLp(_amount);
+
+        // Stake
+        IMultiRewards(stakingAddress).stake(_amount);
+
+        // Check amount staked
+        uint256 stakingBalanceAfter = IERC20(stakingAddress).balanceOf(address(this));
+        assert(stakingBalanceAfter == stakingBalanceBefore + _amount);
+    }
+
+    function _withdraw(uint256 _amount) internal {
+        // Unstake
+        IMultiRewards(stakingAddress).withdraw(_amount);
+
+        // withdraw LP
+        IOxPool(oxPoolAddress).withdrawLp(_amount);
+    }
+
+    function _claim() internal {
+        IMultiRewards(stakingAddress).getReward();
+    }
+
+
     function protectedTokens()
         internal
         view
@@ -424,7 +452,7 @@ contract Strategy is BaseStrategy {
             return true;
         }
 
-        // otherwise, we don't harvest
+        // otherwise, we use BaseStrategies approach
         return super.harvestTrigger(callCostinEth);
     }
 
@@ -443,9 +471,9 @@ contract Strategy is BaseStrategy {
         override
         returns (uint256 _amountFreed)
     {
-        uint256 deposited = ChefLike(masterchef).userBalances(address(this), address(want));
+        uint256 deposited = balanceOfStaked();
         if (deposited > 0) {
-            ChefLike(masterchef).withdraw(address(want), deposited);
+            _withdraw(deposited);
         }
         _amountFreed = want.balanceOf(address(this));
     }
